@@ -9,7 +9,13 @@ import { buildTitlePage, buildChapterPage, buildTocXhtml } from "./epubTemplates
 import { buildOpf } from "./epubOpf.js";
 import { buildNcx } from "./epubNcx.js";
 
-export async function createEPUB(onProgress = () => {}) {
+/**
+ * createEPUB(onProgress, isCancelled)
+ *
+ * onProgress(current, total) — вызывается перед загрузкой каждой главы
+ * isCancelled() — функция, возвращающая true, если пользователь нажал "Остановить"
+ */
+export async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
     // JSZip loader
     if (!window.JSZip) {
         await new Promise((resolve, reject) => {
@@ -33,25 +39,64 @@ export async function createEPUB(onProgress = () => {}) {
     const { fandom, size, tags, description, notes, otherPublication } = getExtraData();
     const { direction, rating, status } = getDirectionRatingStatus();
 
-    // ---------- СБОР ГЛАВ ----------
-    const chaptersNodes = document.querySelectorAll(".list-of-fanfic-parts .part-link");
+    // ---------- СБОР СПИСКА ГЛАВ (как в FB2) ----------
+    let rawChapters = Array.from(document.querySelectorAll(".list-of-fanfic-parts .part-link"))
+        .filter(ch => {
+            if (!ch.href) return false;
+            if (ch.href.includes("/all-parts")) return false;
+            let clean = ch.href.split("#")[0];
+            let last = clean.split("/").pop();
+            return /^\d+$/.test(last);
+        });
+
+    let chaptersList = [];
+    let seen = new Set();
+    for (let ch of rawChapters) {
+        if (!seen.has(ch.href)) {
+            seen.add(ch.href);
+            chaptersList.push(ch);
+        }
+    }
+
+    const total = chaptersList.length;
     const chapters = [];
     let index = 1;
 
-    for (let chapter of chaptersNodes) {
+    // ---------- ЗАГРУЗКА ГЛАВ ----------
+    for (let chapter of chaptersList) {
 
-        onProgress(index, chaptersNodes.length);
+        // Проверяем отмену ДО загрузки
+        if (isCancelled()) throw new Error("cancelled");
 
+        // Прогресс
+        onProgress(index, total);
+
+        // Проверяем отмену
+        if (isCancelled()) throw new Error("cancelled");
+
+        // Делаем задержку (как FB2)
+        await new Promise(r => setTimeout(r, 800 + Math.random() * 700));
+
+        // Проверяем отмену
+        if (isCancelled()) throw new Error("cancelled");
+
+        // Загружаем главу
         let { title: chTitle, xhtml } = await getChapter(chapter.href);
+
+        // Проверяем отмену
+        if (isCancelled()) throw new Error("cancelled");
+
         chapters.push({
             id: `chapter${index}`,
             file: `chapter${index}.xhtml`,
             title: chTitle,
             content: xhtml
         });
+
         index++;
     }
 
+    // ---------- СБОР EPUB ----------
     const zip = new JSZip();
 
     // mimetype
@@ -82,7 +127,8 @@ export async function createEPUB(onProgress = () => {}) {
         tags,
         description,
         notes,
-        otherPublication
+        otherPublication,
+        fandom
     }));
 
     // Chapters

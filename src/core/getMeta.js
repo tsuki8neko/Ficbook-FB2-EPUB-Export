@@ -3,11 +3,24 @@ export function getExtraData() {
         Array.from(document.querySelectorAll(".description .mb-10"))
             .find(n => n.querySelector("strong")?.innerText.includes(label));
 
+    // --- ФЭНДОМ ---
     const fandomBlock = findBlock("Фэндом:");
-    const fandom = fandomBlock
+    let fandom = fandomBlock
         ? Array.from(fandomBlock.querySelectorAll("a")).map(a => a.innerText.trim()).join(", ")
         : "";
 
+    // // Фикс для ориджиналов — если фэндом пустой
+    // if (!fandom || fandom.trim() === "") {
+    //     // Ищем ссылку на ориджиналы
+    //     const origLink = document.querySelector('a[href*="/fanfiction/no_fandom/originals"]');
+    //     if (origLink) {
+    //         fandom = origLink.innerText.trim(); // "Ориджиналы"
+    //     } else {
+    //         fandom = "Ориджинал"; // fallback на случай редких вариантов
+    //     }
+    // }
+
+    // --- РАЗМЕР ---
     const sizeBlock = findBlock("Размер:");
     let size = "";
     if (sizeBlock) {
@@ -15,14 +28,19 @@ export function getExtraData() {
         size = match ? match[1] : "";
     }
 
+    // --- ТЕГИ ---
     const tagsNode = document.querySelector(".description .tags");
     const tags = tagsNode
         ? Array.from(tagsNode.querySelectorAll("a")).map(a => a.innerText.trim()).join(", ")
         : "";
 
+    // --- ОПИСАНИЕ ---
     const description = document.querySelector(".description .js-public-beta-description")?.innerText.trim() || "";
+
+    // --- ПРИМЕЧАНИЯ ---
     const notes = document.querySelector(".description .js-public-beta-author-comment")?.innerText.trim() || "";
 
+    // --- ПУБЛИКАЦИЯ НА ДРУГИХ РЕСУРСАХ ---
     const otherPublicationBlock = findBlock("Публикация на других ресурсах:");
     const otherPublication = otherPublicationBlock
         ? otherPublicationBlock.innerText.trim()

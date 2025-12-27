@@ -9,7 +9,13 @@ import { buildFb2Header } from "./fb2Header.js";
 import { buildFb2Toc } from "./fb2Toc.js";
 import { buildFb2Body } from "./fb2Body.js";
 
-export async function createFB2(onProgress = () => {}) {
+/**
+ * createFB2(onProgress, isCancelled)
+ *
+ * onProgress(current, total) — вызывается перед загрузкой каждой главы
+ * isCancelled() — функция, возвращающая true, если пользователь нажал "Остановить"
+ */
+export async function createFB2(onProgress = () => {}, isCancelled = () => false) {
     const title = getTitle();
     const authors = getAuthors();
     if (!authors.length) {
@@ -34,7 +40,8 @@ export async function createFB2(onProgress = () => {}) {
         tags,
         description,
         notes,
-        otherPublication
+        otherPublication,
+        fandom
     });
 
     // ---------- СБОР ГЛАВ ----------
@@ -60,13 +67,38 @@ export async function createFB2(onProgress = () => {}) {
         }
     }
 
+    const total = chapters.length;
+
     for (let chapter of chapters) {
 
-        onProgress(chapterIndex, chapters.length);
+        // Проверяем отмену ДО загрузки главы
+        if (isCancelled()) {
+            throw new Error("cancelled");
+        }
 
+        // Сообщаем прогресс
+        onProgress(chapterIndex, total);
+
+        // Проверяем отмену ещё раз (вдруг пользователь нажал в этот момент)
+        if (isCancelled()) {
+            throw new Error("cancelled");
+        }
+
+        // Задержка между запросами
         await delay(800 + Math.random() * 700);
 
+        // Проверяем отмену перед запросом
+        if (isCancelled()) {
+            throw new Error("cancelled");
+        }
+
+        // Загружаем главу
         let { title: chTitle, xhtml } = await getChapter(chapter.href);
+
+        // Проверяем отмену после запроса
+        if (isCancelled()) {
+            throw new Error("cancelled");
+        }
 
         tocEntries.push({
             id: `ch${chapterIndex}`,
