@@ -6,6 +6,6 @@
 // @author       Moon Cat
 // @match        https://ficbook.net/readfic/*
 // @grant        none
-// @updateURL 	 https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/raw/refs/heads/master/dist/ficbook-export.user.js
-// @downloadURL  https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/raw/refs/heads/master/dist/ficbook-export.user.js
+// @updateURL   https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/dist/ficbook-export.user.js
+// @downloadURL https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/dist/ficbook-export.user.js
 // ==/UserScript==
