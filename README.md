@@ -21,8 +21,7 @@
 
 1. Установить менеджер userscript’ов:
    - **Tampermonkey**  
-     ([Firefox](https://addons.mozilla.org/en-US/firefox/addon/tampermonkey/),  
-     [Chrome](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo))
+     ([Firefox](https://addons.mozilla.org/en-US/firefox/addon/tampermonkey/), [Chrome](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo))
    - **Violentmonkey**  
      ([Firefox](https://addons.mozilla.org/en-US/firefox/addon/violentmonkey/))
 
@@ -77,8 +76,7 @@ The project is distributed as a userscript and is intended for local use.
 
 1. Install a userscript manager:
    - **Tampermonkey**  
-     ([Firefox](https://addons.mozilla.org/en-US/firefox/addon/tampermonkey/),  
-     [Chrome](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo))
+     ([Firefox](https://addons.mozilla.org/en-US/firefox/addon/tampermonkey/), [Chrome](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo))
    - **Violentmonkey**  
      ([Firefox](https://addons.mozilla.org/en-US/firefox/addon/violentmonkey/))
 
