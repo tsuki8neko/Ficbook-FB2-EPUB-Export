@@ -92,8 +92,8 @@ export function createButtons(createFB2, createEPUB) {
             });
     };
 
+    container.appendChild(stopBtn);
     container.appendChild(fb2Btn);
     container.appendChild(epubBtn);
-    container.appendChild(stopBtn);
     document.body.appendChild(container);
 }

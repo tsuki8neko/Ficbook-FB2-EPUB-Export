@@ -26,6 +26,7 @@ export function buildTitlePage({
     <div class="title-page">
         <h1>${escapeXml(title)}</h1>
         <h2>${escapeXml(mainAuthor.name)}</h2>
+
         <div class="meta-block">
             <p><strong>Направленность:</strong> ${escapeXml(direction)}</p>
             <p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)}</p>
@@ -35,7 +36,6 @@ export function buildTitlePage({
             <p><strong>Размер:</strong> ${escapeXml(size)} слов</p>
             <p><strong>Статус:</strong> ${escapeXml(status)}</p>
             <p><strong>Метки:</strong> ${escapeXml(tags)}</p>
-            <p><strong>Ссылка на оригинал:</strong> ${escapeXml(location.href)}</p>
         </div>
     </div>
 
@@ -69,7 +69,7 @@ export function buildChapterPage(ch) {
 
 export function buildTocXhtml(chapters) {
     const tocItems = chapters.map(ch => `
-        <li><a href="${ch.file}">${escapeXml(ch.title)}</a></li>
+        <li><a href="${escapeXml(ch.file)}">${escapeXml(ch.title)}</a></li>
     `).join("\n");
 
     return `
@@ -82,7 +82,6 @@ export function buildTocXhtml(chapters) {
 <body>
     <h1>Оглавление</h1>
     <ol>
-        <li><a href="titlepage.xhtml">Титульная страница</a></li>
         ${tocItems}
     </ol>
 </body>

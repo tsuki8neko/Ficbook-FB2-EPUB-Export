@@ -9,12 +9,6 @@ import { buildFb2Header } from "./fb2Header.js";
 import { buildFb2Toc } from "./fb2Toc.js";
 import { buildFb2Body } from "./fb2Body.js";
 
-/**
- * createFB2(onProgress, isCancelled)
- *
- * onProgress(current, total) — вызывается перед загрузкой каждой главы
- * isCancelled() — функция, возвращающая true, если пользователь нажал "Остановить"
- */
 export async function createFB2(onProgress = () => {}, isCancelled = () => false) {
     const title = getTitle();
     const authors = getAuthors();
@@ -28,7 +22,6 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
     const { fandom, size, tags, description, notes, otherPublication } = getExtraData();
     const { direction, rating, status } = getDirectionRatingStatus();
 
-    // ---------- HEADER ----------
     let fb2Header = buildFb2Header({
         title,
         mainAuthor,
@@ -44,7 +37,6 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
         fandom
     });
 
-    // ---------- СБОР ГЛАВ ----------
     let fb2Chapters = "";
     let tocEntries = [];
     let chapterIndex = 1;
@@ -71,53 +63,38 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
 
     for (let chapter of chapters) {
 
-        // Проверяем отмену ДО загрузки главы
-        if (isCancelled()) {
-            throw new Error("cancelled");
-        }
+        if (isCancelled()) throw new Error("cancelled");
 
-        // Сообщаем прогресс
         onProgress(chapterIndex, total);
 
-        // Проверяем отмену ещё раз (вдруг пользователь нажал в этот момент)
-        if (isCancelled()) {
-            throw new Error("cancelled");
-        }
+        if (isCancelled()) throw new Error("cancelled");
 
-        // Задержка между запросами
         await delay(800 + Math.random() * 700);
 
-        // Проверяем отмену перед запросом
-        if (isCancelled()) {
-            throw new Error("cancelled");
-        }
+        if (isCancelled()) throw new Error("cancelled");
 
-        // Загружаем главу
         let { title: chTitle, xhtml } = await getChapter(chapter.href);
 
-        // Проверяем отмену после запроса
-        if (isCancelled()) {
-            throw new Error("cancelled");
-        }
+        if (isCancelled()) throw new Error("cancelled");
 
+        // НУМЕРАЦИЯ В ОГЛАВЛЕНИИ (теперь с •)
         tocEntries.push({
             id: `ch${chapterIndex}`,
-            title: chTitle
+            title: `•\u2003${chTitle}`
         });
 
+        // НУМЕРАЦИЯ В ТЕКСТЕ FB2 (теперь с •)
         fb2Chapters += `
-<section id="ch${chapterIndex}">
-    <title><p>${chTitle}</p></title>
-    ${xhtml}
-</section>`;
+        <section id="ch${chapterIndex}">
+            <title><p>•\u2003${chTitle}</p></title>
+            ${xhtml}
+        </section>`;
+
 
         chapterIndex++;
     }
 
-    // ---------- TOC ----------
     let fb2Toc = buildFb2Toc(tocEntries);
-
-    // ---------- BODY ----------
     let fb2Body = buildFb2Body(fb2Chapters);
 
     const baseName = generateFileBaseName(mainAuthor.name, title);
