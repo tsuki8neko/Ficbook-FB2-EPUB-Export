@@ -21,15 +21,14 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build userscript
-        run: npm run build
-
+      # 1. Читаем версию из tampermonkey-header.js
       - name: Read current version from header
         id: version
         run: |
-          VERSION=$(grep -oP '(?<=@version )\S+' build/ficbook-export.user.js)
+          VERSION=$(grep -oP '(?<=@version\s+)\S+' tampermonkey-header.js)
           echo "current_version=$VERSION" >> $GITHUB_OUTPUT
 
+      # 2. Увеличиваем PATCH
       - name: Calculate next patch version
         id: bump
         run: |
@@ -38,10 +37,16 @@ jobs:
           NEW_VERSION="$MAJOR.$MINOR.$PATCH"
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Update version in userscript
+      # 3. Обновляем версию в tampermonkey-header.js (с выравниванием!)
+      - name: Update version in header
         run: |
-          sed -i "s/@version .*/@version ${{ steps.bump.outputs.new_version }}/" build/ficbook-export.user.js
+          sed -i "s/@version\s\+[0-9.]\+/@version      ${{ steps.bump.outputs.new_version }}/" tampermonkey-header.js
 
+      # 4. Собираем проект уже с новой версией
+      - name: Build userscript
+        run: npm run build
+
+      # 5. Создаём релиз
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
