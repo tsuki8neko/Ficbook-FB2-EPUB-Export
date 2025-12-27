@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ficbook FB2 & EPUB Export
 // @namespace    http://tampermonkey.net/
-// @version      1.0.1
+// @version      1.0.2
 // @description  Ficbook FB2 & EPUB Export
 // @author       Moon Cat
 // @match        https://ficbook.net/readfic/*
