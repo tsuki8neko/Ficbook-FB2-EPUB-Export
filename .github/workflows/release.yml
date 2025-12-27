@@ -25,7 +25,7 @@ jobs:
       - name: Read current version from header
         id: version
         run: |
-          VERSION=$(grep -oP '(?<=@version\s+)\S+' tampermonkey-header.js)
+          VERSION=$(sed -n 's/^.*@version[[:space:]]\+\([0-9.]\+\).*$/\1/p' tampermonkey-header.js)
           echo "current_version=$VERSION" >> $GITHUB_OUTPUT
 
       # 2. Увеличиваем PATCH
