@@ -19,8 +19,8 @@
 ## Установка (Userscript)
 
 1. Установить менеджер userscript’ов:
-   - **Tampermonkey** (Chrome, Edge)
-   - **Violentmonkey** (Firefox)
+   - **Tampermonkey** ([Firefox](https://addons.mozilla.org/en-US/firefox/addon/tampermonkey/), [Chrome](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo))
+   - **Violentmonkey** ([Firefox](https://addons.mozilla.org/en-US/firefox/addon/violentmonkey/))
 
 2. Перейти в раздел с достпуными версиями скрипта **[Releases](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/releases)**
 
@@ -30,11 +30,11 @@
 
 ## Использование
 
-1. Открыть страницу произведения на Ficbook с оглавлением 
+1. Открыть страницу произведения на Ficbook с оглавлением
    (страница вида `https://ficbook.net/readfic/*`)
-2. После загрузки страницы в правом нижнем углу появятся кнопки экспорта
-3. Выбрать нужный формат:
+3. После загрузки страницы в правом нижнем углу появятся кнопки экспорта
+4. Выбрать нужный формат:
    - EPUB
    - FB2
-4. Файл будет сгенерирован и сохранён локально
+5. Файл будет сгенерирован и сохранён локально
 
