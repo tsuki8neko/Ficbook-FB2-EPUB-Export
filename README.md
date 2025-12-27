@@ -25,8 +25,7 @@
    - **Violentmonkey**  
      ([Firefox](https://addons.mozilla.org/en-US/firefox/addon/violentmonkey/))
 
-2. Перейти в раздел с доступными версиями скрипта  
-   **[Releases](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/releases)**
+2. Перейти в раздел с доступными версиями скрипта **[Releases](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/releases)**
 
 3. Скачать последний `.user.js` файл и установить его в менеджер скриптов
 
@@ -80,8 +79,7 @@ The project is distributed as a userscript and is intended for local use.
    - **Violentmonkey**  
      ([Firefox](https://addons.mozilla.org/en-US/firefox/addon/violentmonkey/))
 
-2. Go to the  
-   **[Releases](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/releases)** section.
+2. Go to the **[Releases](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/releases)** section.
 
 3. Download the latest `.user.js` file and install it in your userscript manager.
 
