@@ -3,7 +3,7 @@ name: Build and Commit Userscript
 on:
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
 
 jobs:
