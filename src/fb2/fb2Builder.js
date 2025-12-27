@@ -9,7 +9,7 @@ import { buildFb2Header } from "./fb2Header.js";
 import { buildFb2Toc } from "./fb2Toc.js";
 import { buildFb2Body } from "./fb2Body.js";
 
-export async function createFB2() {
+export async function createFB2(onProgress = () => {}) {
     const title = getTitle();
     const authors = getAuthors();
     if (!authors.length) {
@@ -61,6 +61,9 @@ export async function createFB2() {
     }
 
     for (let chapter of chapters) {
+
+        onProgress(chapterIndex, chapters.length);
+
         await delay(800 + Math.random() * 700);
 
         let { title: chTitle, xhtml } = await getChapter(chapter.href);

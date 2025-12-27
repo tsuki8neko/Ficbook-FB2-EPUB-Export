@@ -9,7 +9,7 @@ import { buildTitlePage, buildChapterPage, buildTocXhtml } from "./epubTemplates
 import { buildOpf } from "./epubOpf.js";
 import { buildNcx } from "./epubNcx.js";
 
-export async function createEPUB() {
+export async function createEPUB(onProgress = () => {}) {
     // JSZip loader
     if (!window.JSZip) {
         await new Promise((resolve, reject) => {
@@ -39,6 +39,9 @@ export async function createEPUB() {
     let index = 1;
 
     for (let chapter of chaptersNodes) {
+
+        onProgress(index, chaptersNodes.length);
+
         let { title: chTitle, xhtml } = await getChapter(chapter.href);
         chapters.push({
             id: `chapter${index}`,
