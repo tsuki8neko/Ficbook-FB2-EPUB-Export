@@ -21,14 +21,14 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # 1. Читаем версию из tampermonkey-header.js
+      # 1. Read version from header
       - name: Read current version from header
         id: version
         run: |
           VERSION=$(sed -n 's/^.*@version[[:space:]]\+\([0-9.]\+\).*$/\1/p' tampermonkey-header.js)
           echo "current_version=$VERSION" >> $GITHUB_OUTPUT
 
-      # 2. Увеличиваем PATCH
+      # 2. Bump patch
       - name: Calculate next patch version
         id: bump
         run: |
@@ -37,16 +37,16 @@ jobs:
           NEW_VERSION="$MAJOR.$MINOR.$PATCH"
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-      # 3. Обновляем версию в tampermonkey-header.js (с выравниванием!)
+      # 3. Update version in header (with alignment)
       - name: Update version in header
         run: |
           sed -i "s/@version\s\+[0-9.]\+/@version      ${{ steps.bump.outputs.new_version }}/" tampermonkey-header.js
 
-      # 4. Собираем проект уже с новой версией
+      # 4. Build project AFTER updating version
       - name: Build userscript
         run: npm run build
 
-      # 5. Создаём релиз
+      # 5. Create release
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
