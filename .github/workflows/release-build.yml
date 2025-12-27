@@ -2,6 +2,10 @@ name: Release Build
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name (e.g. v1.2.3)'
+        required: true
   push:
     tags:
       - 'v*'
@@ -22,15 +26,19 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Extract version number
+      - name: Determine version
         id: clean_version
         run: |
-          VERSION="${GITHUB_REF#refs/tags/v}"
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="${{ github.event.inputs.tag#v }}"
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Update version in header
         run: |
-          sed -i "s|@version.*|@version ${{ steps.clean_version.outputs.version }}|" tampermonkey-header.js
+          sed -i "s|@version.*|@version      ${{ steps.clean_version.outputs.version }}|" tampermonkey-header.js
 
       - name: Build userscript
         run: npm run build
@@ -38,6 +46,7 @@ jobs:
       - name: Upload artifact to release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name || github.event.inputs.tag }}
           files: build/ficbook-export.user.js
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
