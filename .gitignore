@@ -1,5 +1,6 @@
 node_modules/
 .github/workflows/release.yml
+.github/workflows/release-please_auto_release.yml
 cr.js
 dist/
 build/
