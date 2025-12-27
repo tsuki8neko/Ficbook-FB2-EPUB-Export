@@ -1,0 +1,42 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Extract version number
+        id: clean_version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update version in header
+        run: |
+          sed -i "s/@version.*/@version      ${{ steps.clean_version.outputs.version }}/" tampermonkey-header.js
+
+      - name: Build userscript
+        run: npm run build
+
+      - name: Upload artifact to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/ficbook-export.user.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
