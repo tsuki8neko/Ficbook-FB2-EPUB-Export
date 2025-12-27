@@ -30,7 +30,7 @@ jobs:
 
       - name: Update version in header
         run: |
-          sed -i "s/@version.*/@version      ${{ steps.clean_version.outputs.version }}/" tampermonkey-header.js
+          sed -i "s|@version.*|@version ${{ steps.clean_version.outputs.version }}|" tampermonkey-header.js
 
       - name: Build userscript
         run: npm run build
