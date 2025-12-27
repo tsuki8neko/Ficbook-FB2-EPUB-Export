@@ -22,10 +22,9 @@
    - **Tampermonkey** (Chrome, Edge)
    - **Violentmonkey** (Firefox)
 
-2. Перейти в раздел **Releases**:
-   https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/releases
+2. Перейти в раздел с достпуными версиями скрипта **[Releases](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/releases)**
 
-3. Скачать последний `.user.js` файл и установить его в менеджер скриптов.
+3. Скачать последний `.user.js` файл и установить его в менеджер скриптов
 
 ---
 
