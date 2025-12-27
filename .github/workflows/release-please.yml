@@ -8,8 +8,12 @@ on:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - name: Release Please
+        id: release
         uses: google-github-actions/release-please-action@v4
         with:
           release-type: simple
@@ -32,10 +36,17 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # Вставляем версию в header
+      # Extract version number without "v"
+      - name: Extract version number
+        id: clean_version
+        run: |
+          VERSION="${{ needs.release-please.outputs.tag_name }}"
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Update version in header
         run: |
-          sed -i "s/@version.*/@version      ${{ needs.release-please.outputs.tag_name#v }}/" tampermonkey-header.js
+          sed -i "s/@version.*/@version      ${{ steps.clean_version.outputs.version }}/" tampermonkey-header.js
 
       - name: Build userscript
         run: npm run build
