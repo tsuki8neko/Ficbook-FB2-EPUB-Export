@@ -1,5 +1,5 @@
 node_modules/
-workflows/build.yml
+.github/workflows/release.yml
 cr.js
 dist/
 build/

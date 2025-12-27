@@ -97,4 +97,3 @@ export function createButtons(createFB2, createEPUB) {
     container.appendChild(stopBtn);
     document.body.appendChild(container);
 }
-//test
