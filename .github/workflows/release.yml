@@ -12,6 +12,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -37,12 +39,21 @@ jobs:
           NEW_VERSION="$MAJOR.$MINOR.$PATCH"
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-      # 3. Update version in header (with alignment)
+      # 3. Update version in header
       - name: Update version in header
         run: |
           sed -i "s/@version\s\+[0-9.]\+/@version      ${{ steps.bump.outputs.new_version }}/" tampermonkey-header.js
 
-      # 4. Build project AFTER updating version
+      # 3.5 Commit updated version back to repo
+      - name: Commit updated version
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add tampermonkey-header.js
+          git commit -m "Bump version to ${{ steps.bump.outputs.new_version }}" || echo "No changes to commit"
+          git push
+
+      # 4. Build userscript
       - name: Build userscript
         run: npm run build
 
