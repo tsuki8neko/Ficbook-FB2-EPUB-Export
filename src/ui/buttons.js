@@ -53,3 +53,5 @@ export function createButtons(createFB2, createEPUB) {
     container.appendChild(epubBtn);
     document.body.appendChild(container);
 }
+
+//test
