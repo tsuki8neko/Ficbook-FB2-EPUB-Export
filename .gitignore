@@ -4,4 +4,5 @@ node_modules/
 cr.js
 dist/
 build/
-.idea 
+.idea
+structure
