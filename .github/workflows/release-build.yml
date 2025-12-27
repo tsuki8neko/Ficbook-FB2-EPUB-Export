@@ -26,19 +26,15 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Determine version
+      - name: Extract version number
         id: clean_version
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/v}"
-          else
-            VERSION="${{ github.event.inputs.tag#v }}"
-          fi
+          VERSION="${GITHUB_REF#refs/tags/v}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Update version in header
         run: |
-          sed -i "s|@version.*|@version      ${{ steps.clean_version.outputs.version }}|" tampermonkey-header.js
+          sed -i "s/@version.*/@version      ${{ steps.clean_version.outputs.version }}/" tampermonkey-header.js
 
       - name: Build userscript
         run: npm run build
@@ -46,7 +42,7 @@ jobs:
       - name: Upload artifact to release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name || github.event.inputs.tag }}
           files: build/ficbook-export.user.js
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
