@@ -7,6 +7,6 @@
 // @match        https://ficbook.net/readfic/*
 // @grant        none
 // @license      Apache-2.0
-// @updateURL    https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/releases/latest/download/ficbook-export.user.js
-// @downloadURL  https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/releases/latest/download/ficbook-export.user.js
+// @updateURL    https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
+// @downloadURL  https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
 // ==/UserScript==

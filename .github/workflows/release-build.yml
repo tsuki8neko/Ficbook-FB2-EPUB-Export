@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -30,11 +32,9 @@ jobs:
         id: clean_version
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            # Автоматический запуск по тегу
             VERSION="${GITHUB_REF#refs/tags/v}"
             TAG_NAME="${GITHUB_REF#refs/tags/}"
           else
-            # Ручной запуск — используем введённый тег
             TAG_NAME="${{ github.event.inputs.tag }}"
             VERSION="${TAG_NAME#v}"
           fi
@@ -49,6 +49,19 @@ jobs:
       - name: Build userscript
         run: npm run build
 
+      #  НОВЫЕ ШАГИ ДЛЯ GREASYFORK
+      - name: Copy built userscript to repo root
+        run: cp build/ficbook-export.user.js ficbook-export.user.js
+
+      - name: Commit updated userscript
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add ficbook-export.user.js
+          git commit -m "Update userscript" || echo "No changes to commit"
+          git push
+
+      #  ОСТАВЛЯЕМ ВЫГРУЗКУ В RELEASE
       - name: Upload artifact to release
         uses: softprops/action-gh-release@v2
         with:
