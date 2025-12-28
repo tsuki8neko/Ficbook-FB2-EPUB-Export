@@ -2,7 +2,7 @@
 // @name         Ficbook FB2 & EPUB Export
 // @namespace    http://tampermonkey.net/
 // @version      1.0.2
-// @description  Ficbook FB2 & EPUB Export
+// @description  Download books from Ficbook in FB2 and EPUB formats
 // @author       tsuki8neko
 // @match        https://ficbook.net/readfic/*
 // @grant        none
