@@ -99,7 +99,7 @@ The project is distributed as a userscript and is intended for local use.
 
 ---
 
-## ⚠️ Disclaimer
+## ⚠️Disclaimer
 
 This project is intended for personal and educational use only.  
 Please respect the authors.
