@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.1.2...v2.0.0) (2025-12-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* critical MIME type correction for EPUB/FB2 to prevent wrong extensions on Firefox Android
+
+### Bug Fixes
+
+* critical MIME type correction for EPUB/FB2 to prevent wrong extensions on Firefox Android ([19eaacf](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/19eaacfdc7c4b2c01cd6a07cacb7f7e5387e6340))
+
 ## [1.1.2](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.1.1...v1.1.2) (2025-12-27)
 
 
