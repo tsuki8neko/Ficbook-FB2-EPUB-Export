@@ -154,7 +154,11 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
     const baseName = generateFileBaseName(mainAuthor.name, title);
     const fileName = `${baseName}.epub`;
 
-    const blob = await zip.generateAsync({ type: "blob" });
+    const blob = await zip.generateAsync({
+        type: "blob",
+        mimeType: "application/epub+zip"
+    });
+
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = fileName;
