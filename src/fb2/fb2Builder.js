@@ -100,7 +100,11 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
     const baseName = generateFileBaseName(mainAuthor.name, title);
     const fileName = `${baseName}.fb2`;
 
-    let blob = new Blob([fb2Header + fb2Toc + fb2Body], { type: "application/xml" });
+    let blob = new Blob(
+        [fb2Header + fb2Toc + fb2Body],
+        { type: "text/xml" }
+    );
+
     let link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = fileName;
