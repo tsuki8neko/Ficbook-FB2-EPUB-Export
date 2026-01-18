@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.2.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.1.5...v1.2.0) (2026-01-18)
+## [1.3.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.1.5...v1.2.0) (2026-01-18)
 
 * **ui:** reorder buttons and improve export formatting ([a60c974](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/a60c974d8fbe8abe89adddf5240e5251293edd59))
 
