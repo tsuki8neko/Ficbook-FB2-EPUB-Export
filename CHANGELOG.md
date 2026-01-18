@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.1.2...v1.2.0) (2026-01-18)
+
+
+### Features
+
+* restore latest project state after clean history reset ([1d44d4c](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/1d44d4c19bee7ae643653a95fc074c122079d2d0))
+
 ## [1.1.2](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.1.4...v1.1.5) (2026-01-18)
 
 
