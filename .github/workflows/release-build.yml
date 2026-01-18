@@ -1,7 +1,5 @@
 name: Release Build
 
-name: release-build
-
 on:
   workflow_run:
     workflows: ["Release Please"]
