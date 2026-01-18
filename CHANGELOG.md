@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.3.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.2.0...v1.3.0) (2026-01-18)
+
+
+### Features
+
+* restore latest project state after history reset ([fcbb64d](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/fcbb64dfbc27d7bed3649fa626cebf49da410d2f))
+* **ui:** reorder buttons and improve export formatting ([a60c974](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/a60c974d8fbe8abe89adddf5240e5251293edd59))
+
+
+### Bug Fixes
+
+* correct MIME types for EPUB/FB2 on Firefox Android ([caf743a](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/caf743a4116b452cb2981824b21a912695443101))
+* correct MIME types for EPUB/FB2 to prevent wrong extensions on Firefox Android ([550a368](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/550a36850d2efe642cfc4b54fbe89db66651e3ee))
+* trigger proper release ([bffe32e](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/bffe32e7f6f733db28e08a0c43ebc4fff70dad9f))
+* trigger release ([6e9d48a](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/6e9d48a4c6b99c6745809d50e98569965ed6c8b3))
+
 ## [1.2.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.1.4...v1.2.0) (2026-01-18)
 
 
