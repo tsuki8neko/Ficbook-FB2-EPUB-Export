@@ -5,4 +5,4 @@
 
 ### Features
 
-* **ui:** reorder buttons and improve export formatting ([a60c974](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/a60c974d8fbe8abe89adddf5240e5251293edd59))
+* **UI:** reorder buttons and improve export formatting ([a60c974](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/a60c974d8fbe8abe89adddf5240e5251293edd59))

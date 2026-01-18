@@ -1,5 +1,10 @@
 export function createButtons(createFB2, createEPUB) {
-    let isCancelled = false;
+    // === ГЛОБАЛЬНЫЙ СЧЁТЧИК АКТИВНЫХ ЗАГРУЗОК ===
+    let activeDownloads = 0;
+
+    function updateStopButton() {
+        stopBtn.style.display = activeDownloads > 0 ? "block" : "none";
+    }
 
     const container = document.createElement("div");
     container.id = "ficbook-export-buttons";
@@ -32,64 +37,63 @@ export function createButtons(createFB2, createEPUB) {
     const stopBtn = createButton("Остановить загрузку", "#dc2626");
     stopBtn.style.display = "none";
 
-    // Кнопка остановки
+    // === ГЛОБАЛЬНАЯ ОТМЕНА ВСЕХ ЗАГРУЗОК ===
+    let cancelCallbacks = [];
+
     stopBtn.onclick = () => {
-        isCancelled = true;
         stopBtn.textContent = "Остановка...";
+        cancelCallbacks.forEach(cb => cb());
+        cancelCallbacks = [];
+        activeDownloads = 0;
+        updateStopButton();
     };
 
-    // FB2
-    fb2Btn.onclick = () => {
-        isCancelled = false;
-        stopBtn.textContent = "Остановить загрузку";
-        stopBtn.style.display = "block";
-        fb2Btn.disabled = true;
+    // === ОБЁРТКА ДЛЯ ЗАПУСКА ЛЮБОЙ ЗАГРУЗКИ ===
+    function runDownload(startFn, button, label) {
+        let cancelled = false;
 
-        createFB2(
+        // регистрируем отмену
+        cancelCallbacks.push(() => cancelled = true);
+
+        activeDownloads++;
+        updateStopButton();
+
+        button.disabled = true;
+        button.textContent = label;
+
+        startFn(
             (current, total) => {
-                if (isCancelled) throw new Error("cancelled");
-                fb2Btn.textContent = `FB2: Загружается глава ${current}/${total}`;
+                if (cancelled) throw new Error("cancelled");
+                button.textContent = `${label}: Загружается глава ${current}/${total}`;
             },
-            () => isCancelled
+            () => cancelled
         )
             .catch(err => {
                 if (err.message === "cancelled") {
-                    fb2Btn.textContent = "Отменено";
+                    button.textContent = "Отменено";
                 }
             })
             .finally(() => {
-                fb2Btn.disabled = false;
-                fb2Btn.textContent = "Скачать FB2";
+                // удаляем callback отмены
+                cancelCallbacks = cancelCallbacks.filter(cb => cb !== (() => cancelled = true));
+
+                activeDownloads--;
+                updateStopButton();
+
+                button.disabled = false;
+                button.textContent = label;
                 stopBtn.textContent = "Остановить загрузку";
-                stopBtn.style.display = "none";
             });
+    }
+
+    // FB2
+    fb2Btn.onclick = () => {
+        runDownload(createFB2, fb2Btn, "Скачать FB2");
     };
 
     // EPUB
     epubBtn.onclick = () => {
-        isCancelled = false;
-        stopBtn.textContent = "Остановить загрузку";
-        stopBtn.style.display = "block";
-        epubBtn.disabled = true;
-
-        createEPUB(
-            (current, total) => {
-                if (isCancelled) throw new Error("cancelled");
-                epubBtn.textContent = `EPUB: Загружается глава ${current}/${total}`;
-            },
-            () => isCancelled
-        )
-            .catch(err => {
-                if (err.message === "cancelled") {
-                    epubBtn.textContent = "Отменено";
-                }
-            })
-            .finally(() => {
-                epubBtn.disabled = false;
-                epubBtn.textContent = "Скачать EPUB";
-                stopBtn.textContent = "Остановить загрузку";
-                stopBtn.style.display = "none";
-            });
+        runDownload(createEPUB, epubBtn, "Скачать EPUB");
     };
 
     container.appendChild(stopBtn);
