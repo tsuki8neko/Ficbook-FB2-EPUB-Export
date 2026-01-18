@@ -1,9 +1,11 @@
-name: release-build
+name: Release Build
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name (например: v1.2.3)'
+        required: true
 
 permissions:
   contents: write
@@ -13,18 +15,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - run: npm install
+      - name: Install dependencies
+        run: npm install
 
-      - run: npm run build
+      - name: Build userscript
+        run: npm run build
 
-      - uses: softprops/action-gh-release@v2
+      - name: Upload artifact to release
+        uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.tag }}
           files: build/ficbook-export.user.js
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
