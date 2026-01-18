@@ -2,7 +2,7 @@ import { escapeXml } from "../utils/escapeXml.js";
 
 export function buildNcx(title, chapters) {
     const navPoints = chapters.map((ch, i) => `
-        <navPoint id="navPoint-${i + 3}" playOrder="${i + 3}">
+        <navPoint id="navPoint-${i + 2}" playOrder="${i + 2}">
             <navLabel><text>${escapeXml(ch.title)}</text></navLabel>
             <content src="${ch.file}"/>
         </navPoint>
@@ -23,10 +23,6 @@ export function buildNcx(title, chapters) {
     </docTitle>
     <navMap>
         <navPoint id="navPoint-1" playOrder="1">
-            <navLabel><text>Титульная страница</text></navLabel>
-            <content src="titlepage.xhtml"/>
-        </navPoint>
-        <navPoint id="navPoint-2" playOrder="2">
             <navLabel><text>Оглавление</text></navLabel>
             <content src="toc.xhtml"/>
         </navPoint>

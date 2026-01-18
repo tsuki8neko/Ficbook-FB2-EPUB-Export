@@ -7,7 +7,7 @@ body {
     font-size: 1em;
 }
 h1, h2, h3 {
-    font-weight: 600;
+    font-weight: 700;
     margin: 1.2em 0 0.6em;
 }
 h1 {
@@ -18,7 +18,7 @@ p {
     margin: 0.6em 0;
 }
 strong {
-    font-weight: 600;
+    font-weight: 700;
 }
 .title-page {
     margin-top: 20%;

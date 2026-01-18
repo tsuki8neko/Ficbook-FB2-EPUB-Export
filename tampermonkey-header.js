@@ -2,10 +2,11 @@
 // @name         Ficbook FB2 & EPUB Export
 // @namespace    http://tampermonkey.net/
 // @version      1.0.2
-// @description  Ficbook FB2 & EPUB Export
-// @author       Moon Cat
+// @description  Download books from Ficbook in FB2 and EPUB formats
+// @author       tsuki8neko
 // @match        https://ficbook.net/readfic/*
 // @grant        none
-// @updateURL   https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/releases/latest/download/ficbook-export.user.js
-// @downloadURL https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/releases/latest/download/ficbook-export.user.js
+// @license      Apache-2.0
+// @updateURL    https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
+// @downloadURL  https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
 // ==/UserScript==

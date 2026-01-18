@@ -9,12 +9,6 @@ import { buildFb2Header } from "./fb2Header.js";
 import { buildFb2Toc } from "./fb2Toc.js";
 import { buildFb2Body } from "./fb2Body.js";
 
-/**
- * createFB2(onProgress, isCancelled)
- *
- * onProgress(current, total) — вызывается перед загрузкой каждой главы
- * isCancelled() — функция, возвращающая true, если пользователь нажал "Остановить"
- */
 export async function createFB2(onProgress = () => {}, isCancelled = () => false) {
     const title = getTitle();
     const authors = getAuthors();
@@ -28,7 +22,6 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
     const { fandom, size, tags, description, notes, otherPublication } = getExtraData();
     const { direction, rating, status } = getDirectionRatingStatus();
 
-    // ---------- HEADER ----------
     let fb2Header = buildFb2Header({
         title,
         mainAuthor,
@@ -44,7 +37,6 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
         fandom
     });
 
-    // ---------- СБОР ГЛАВ ----------
     let fb2Chapters = "";
     let tocEntries = [];
     let chapterIndex = 1;
@@ -58,6 +50,14 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
             return /^\d+$/.test(last);
         });
 
+    // Если список глав пуст — значит глава одна, и она уже открыта
+    if (rawChapters.length === 0) {
+        rawChapters = [{
+            href: location.href
+        }];
+    }
+
+
     let chapters = [];
     let seen = new Set();
     for (let ch of rawChapters) {
@@ -69,61 +69,105 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
 
     const total = chapters.length;
 
+    // 🔥 список неудачных глав
+    let failedChapters = [];
+
+    // ---------------------------
+    //   ПЕРВЫЙ ПРОХОД
+    // ---------------------------
     for (let chapter of chapters) {
 
-        // Проверяем отмену ДО загрузки главы
-        if (isCancelled()) {
-            throw new Error("cancelled");
-        }
+        if (isCancelled()) throw new Error("cancelled");
 
-        // Сообщаем прогресс
         onProgress(chapterIndex, total);
 
-        // Проверяем отмену ещё раз (вдруг пользователь нажал в этот момент)
-        if (isCancelled()) {
-            throw new Error("cancelled");
-        }
-
-        // Задержка между запросами
         await delay(800 + Math.random() * 700);
 
-        // Проверяем отмену перед запросом
-        if (isCancelled()) {
-            throw new Error("cancelled");
+        try {
+            let { title: chTitle, xhtml } = await getChapter(chapter.href);
+
+            tocEntries.push({
+                id: `ch${chapterIndex}`,
+                title: `•\u2003${chTitle}`
+            });
+
+            fb2Chapters += `
+            <section id="ch${chapterIndex}">
+                <title><p>•\u2003${chTitle}</p></title>
+                ${xhtml}
+            </section>`;
+
+        } catch (err) {
+            console.warn("Не удалось загрузить главу:", chapter.href, err);
+            failedChapters.push({ chapter, index: chapterIndex });
         }
-
-        // Загружаем главу
-        let { title: chTitle, xhtml } = await getChapter(chapter.href);
-
-        // Проверяем отмену после запроса
-        if (isCancelled()) {
-            throw new Error("cancelled");
-        }
-
-        tocEntries.push({
-            id: `ch${chapterIndex}`,
-            title: chTitle
-        });
-
-        fb2Chapters += `
-<section id="ch${chapterIndex}">
-    <title><p>${chTitle}</p></title>
-    ${xhtml}
-</section>`;
 
         chapterIndex++;
     }
 
-    // ---------- TOC ----------
-    let fb2Toc = buildFb2Toc(tocEntries);
+    // ---------------------------
+    //   ВТОРОЙ ПРОХОД (повторная загрузка)
+    // ---------------------------
+    if (failedChapters.length > 0) {
+        console.warn("Повторная загрузка неудачных глав:", failedChapters.length);
 
-    // ---------- BODY ----------
+        for (let item of failedChapters) {
+            const { chapter, index } = item;
+
+            await delay(1500 + Math.random() * 1000);
+
+            try {
+                let { title: chTitle, xhtml } = await getChapter(chapter.href);
+
+                // обновляем оглавление
+                tocEntries[index - 1] = {
+                    id: `ch${index}`,
+                    title: `•\u2003${chTitle}`
+                };
+
+                // добавляем текст главы
+                fb2Chapters += `
+                <section id="ch${index}">
+                    <title><p>•\u2003${chTitle}</p></title>
+                    ${xhtml}
+                </section>`;
+
+                item.success = true;
+
+            } catch (err) {
+                console.warn("Повторно не удалось загрузить:", chapter.href);
+                item.success = false;
+            }
+        }
+
+        // оставшиеся неудачные
+        failedChapters = failedChapters.filter(ch => !ch.success);
+    }
+
+    // ---------------------------
+    //   Если остались ошибки
+    // ---------------------------
+    if (failedChapters.length > 0) {
+        alert(
+            "Некоторые главы не удалось загрузить:\n" +
+            failedChapters.map(f => f.chapter.href).join("\n")
+        );
+    }
+
+    // ---------------------------
+    //   Сборка FB2
+    // ---------------------------
+    let fb2Toc = buildFb2Toc(tocEntries);
     let fb2Body = buildFb2Body(fb2Chapters);
 
     const baseName = generateFileBaseName(mainAuthor.name, title);
     const fileName = `${baseName}.fb2`;
 
-    let blob = new Blob([fb2Header + fb2Toc + fb2Body], { type: "application/xml" });
+    let blob = new Blob(
+        [fb2Header + fb2Toc + fb2Body],
+        { type: "text/xml" }
+    );
+
     let link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = fileName;
