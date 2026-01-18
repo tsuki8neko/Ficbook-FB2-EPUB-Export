@@ -19,4 +19,4 @@ jobs:
         with:
           release-type: simple
           token: ${{ secrets.GITHUB_TOKEN }}
-          create-release: true
+          skip-github-release: false
