@@ -4,14 +4,17 @@ permissions:
   contents: write
 
 on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
         description: 'Tag name (e.g. v1.2.3)'
         required: true
-  push:
-    tags:
-      - 'v*'
+
 
 jobs:
   build-and-upload:
