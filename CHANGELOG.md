@@ -1,19 +1,11 @@
 # Changelog
 
-## [1.1.2](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.1.1...v1.1.2) (2025-12-27)
+## [1.1.2](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.1.4...v1.1.5) (2026-01-18)
 
 
 ### Bug Fixes
 
-* trigger proper release ([bffe32e](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/bffe32e7f6f733db28e08a0c43ebc4fff70dad9f))
-* trigger release ([6e9d48a](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/6e9d48a4c6b99c6745809d50e98569965ed6c8b3))
-
-## [1.1.1](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.1.0...v1.1.1) (2025-12-27)
-
-
-### Bug Fixes
-
-* trigger release ([6e9d48a](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/6e9d48a4c6b99c6745809d50e98569965ed6c8b3))
+* improve chapter loading reliability and add retry logic ([0170985](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/017098504ee3cfc2a84ac5c80bb5412e13ea7759))
 
 ## [1.1.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.0.2...v1.1.0) (2025-12-27)
 
