@@ -20,3 +20,4 @@ jobs:
           release-type: simple
           token: ${{ secrets.GITHUB_TOKEN }}
           skip-github-release: false
+          include-component-in-tag: false
