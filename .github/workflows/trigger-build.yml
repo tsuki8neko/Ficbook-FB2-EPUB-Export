@@ -6,11 +6,21 @@ on:
 
 jobs:
   trigger:
-    if: contains(github.event.comment.body, 'autorelease: tagged')
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check if comment is autorelease tagged
+        id: check
+        run: |
+          COMMENT="${{ github.event.comment.body }}"
+          if [[ "$COMMENT" == *"autorelease: tagged"* ]]; then
+            echo "run_build=true" >> $GITHUB_OUTPUT
+          else
+            echo "run_build=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Trigger Release Build
+        if: steps.check.outputs.run_build == 'true'
         run: gh workflow run release-build.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
