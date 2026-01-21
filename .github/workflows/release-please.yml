@@ -23,4 +23,4 @@ jobs:
         if: steps.release.outputs.release_created == 'true'
         run: gh workflow run release-build.yml --repo "$GITHUB_REPOSITORY"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
