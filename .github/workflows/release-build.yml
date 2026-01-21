@@ -1,18 +1,13 @@
 name: Release Build
 
 on:
-  workflow_run:
-    workflows: ["Release Please"]
-    types: [completed]
+  workflow_dispatch:
 
 permissions:
   contents: write
-  actions: read
 
 jobs:
   build:
-    # Запускаем только если Release Please завершился успешно
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -32,7 +27,6 @@ jobs:
       - name: Build project
         run: npm run build
 
-      # ЖДЁМ, пока GitHub зарегистрирует релиз и тег
       - name: Wait for release to exist
         id: wait_release
         run: |
@@ -53,6 +47,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload built file to release
-        run: gh release upload "${{ steps.wait_release.outputs.tag }}" build/ficbook-export.user.js --clobber
+        run: |
+          gh release upload "${{ steps.wait_release.outputs.tag }}" build/ficbook-export.user.js --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

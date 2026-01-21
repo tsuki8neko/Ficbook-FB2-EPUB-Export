@@ -18,7 +18,43 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Check if a new release exists
+        id: check_release
+        run: |
+          echo "Checking if Release Please actually created a release..."
+
+          # Получаем последний релиз
+          LAST_RELEASE=$(gh release view --json createdAt,tagName -q '.createdAt' 2>/dev/null || true)
+
+          if [ -z "$LAST_RELEASE" ]; then
+            echo "No release found. Skipping."
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Время завершения Release Please workflow
+          WORKFLOW_TIME="${{ github.event.workflow_run.updated_at }}"
+
+          echo "Release created at: $LAST_RELEASE"
+          echo "Workflow finished at: $WORKFLOW_TIME"
+
+          # Если релиз создан ПОСЛЕ завершения Release Please → это новый релиз
+          if [[ "$LAST_RELEASE" > "$WORKFLOW_TIME" ]]; then
+            echo "New release detected!"
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          else
+            echo "No new release. Skipping."
+            echo "should_build=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Stop if no release
+        if: steps.check_release.outputs.should_build == 'false'
+        run: echo "No release created, stopping workflow."
+
       - name: Trigger release-build.yml
+        if: steps.check_release.outputs.should_build == 'true'
         run: gh workflow run release-build.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
