@@ -2,7 +2,7 @@
 // @name        Ficbook FB2 & EPUB Export
 // @namespace   http://tampermonkey.net/
 // @version     1.0.2
-// @build       2026-01-21 10:47
+// @build       2026-01-21 10:58
 // @description Download books from Ficbook in FB2 and EPUB formats
 // @author      tsuki8neko
 // @match       https://ficbook.net/readfic/*
@@ -120,7 +120,7 @@ function delay(ms) {
 async function getChapter(url, attempt = 1) {
     const MAX_ATTEMPTS = 7; // Количество попыток повторного скачивания
 
-    // задержка после успешной загрузки
+    // Задержка после успешной загрузки
     await delay(500 + Math.random() * 300);
 
     let res;
