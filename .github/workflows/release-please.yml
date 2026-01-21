@@ -22,14 +22,12 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      # Если релиз создан — создаём issue-комментарий, который поймает другой workflow
-      - name: Emit release created signal
+      # Если релиз создан — создаём сигнал
+      - name: Create release signal
         if: ${{ steps.release.outputs.release_created }}
-        run: |
-          echo "release-created" >> release_signal.txt
-        shell: bash
+        run: echo "release-created" > release_signal.txt
 
-      - name: Upload signal artifact
+      - name: Upload release signal
         if: ${{ steps.release.outputs.release_created }}
         uses: actions/upload-artifact@v4
         with:
