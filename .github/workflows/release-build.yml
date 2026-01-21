@@ -1,30 +1,58 @@
 name: Release Build
 
 on:
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["Release Please"]
+    types: [completed]
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   build:
+    # Запускаем только если Release Please завершился успешно
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - run: npm install
-      - run: npm run build
+      - name: Install dependencies
+        run: npm install
 
-      - name: Upload to release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: build/ficbook-export.user.js
+      - name: Build project
+        run: npm run build
+
+      # ЖДЁМ, пока GitHub зарегистрирует релиз и тег
+      - name: Wait for release to exist
+        id: wait_release
+        run: |
+          echo "Waiting for GitHub to register the release..."
+          for i in {1..10}; do
+            TAG=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
+            if [ -n "$TAG" ]; then
+              echo "Found release: $TAG"
+              echo "tag=$TAG" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            echo "Release not ready yet, retrying in 5s..."
+            sleep 5
+          done
+          echo "ERROR: Release not found after waiting"
+          exit 1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload built file to release
+        run: gh release upload "${{ steps.wait_release.outputs.tag }}" build/ficbook-export.user.js --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
