@@ -2,7 +2,9 @@ import { textToParagraphs } from "../utils/textToParagraphs.js";
 import { delay } from "../utils/delay.js";
 
 export async function getChapter(url, attempt = 1) {
-    const MAX_ATTEMPTS = 7; // Количество попыток повторного скачивания
+
+    // Количество попыток повторного скачивания
+    const MAX_ATTEMPTS = 7;
 
     // Задержка после успешной загрузки
     await delay(500 + Math.random() * 300);
