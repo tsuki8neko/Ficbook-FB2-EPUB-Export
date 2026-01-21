@@ -1,9 +1,7 @@
 name: Release Build
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -21,7 +19,8 @@ jobs:
       - run: npm install
       - run: npm run build
 
-      - uses: softprops/action-gh-release@v2
+      - name: Upload build artifact to release
+        uses: softprops/action-gh-release@v2
         with:
           files: build/ficbook-export.user.js
         env:
