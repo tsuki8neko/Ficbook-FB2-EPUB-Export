@@ -1,6 +1,6 @@
 {
   "name": "ficbook_fb2_epub_export",
-  "version": "1.0.38",
+  "version": "1.0.39",
   "description": "",
   "main": "cr.js",
   "scripts": {
