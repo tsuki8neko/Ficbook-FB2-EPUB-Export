@@ -11,12 +11,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -27,27 +27,14 @@ jobs:
       - name: Build project
         run: npm run build
 
-      - name: Wait for release to exist
-        id: wait_release
+      - name: Extract release tag from manifest
+        id: tag
         run: |
-          echo "Waiting for GitHub to register the release..."
-          for i in {1..10}; do
-            TAG=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
-            if [ -n "$TAG" ]; then
-              echo "Found release: $TAG"
-              echo "tag=$TAG" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-            echo "Release not ready yet, retrying in 5s..."
-            sleep 5
-          done
-          echo "ERROR: Release not found after waiting"
-          exit 1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG=$(jq -r 'to_entries[0].value' .release-please-manifest.json)
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: Upload built file to release
         run: |
-          gh release upload "${{ steps.wait_release.outputs.tag }}" build/ficbook-export.user.js --clobber
+          gh release upload "${{ steps.tag.outputs.tag }}" build/ficbook-export.user.js --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
