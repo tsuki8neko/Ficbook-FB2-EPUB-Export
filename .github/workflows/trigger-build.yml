@@ -6,8 +6,7 @@ on:
 
 jobs:
   trigger:
-    if:
-      github.event.label.name == 'autorelease: tagged'
+    if: "github.event.label.name == 'autorelease: tagged'"
     runs-on: ubuntu-latest
 
     steps:
