@@ -90,3 +90,4 @@ export async function getChapter(url, attempt = 1) {
         xhtml: textToParagraphs(content)
     };
 }
+
