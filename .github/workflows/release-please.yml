@@ -5,7 +5,6 @@ permissions:
   pull-requests: write
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - master
@@ -19,5 +18,3 @@ jobs:
         with:
           release-type: simple
           token: ${{ secrets.GITHUB_TOKEN }}
-          skip-github-release: true
-          include-component-in-tag: true
