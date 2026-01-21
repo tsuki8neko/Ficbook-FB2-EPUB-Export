@@ -11,6 +11,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      issues: write
 
     steps:
       - uses: actions/checkout@v4
@@ -21,15 +22,3 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-
-      # Если релиз создан — создаём сигнал
-      - name: Create release signal
-        if: ${{ steps.release.outputs.release_created }}
-        run: echo "release-created" > release_signal.txt
-
-      - name: Upload release signal
-        if: ${{ steps.release.outputs.release_created }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-signal
-          path: release_signal.txt
