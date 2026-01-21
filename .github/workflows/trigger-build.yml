@@ -23,27 +23,29 @@ jobs:
         run: |
           echo "Checking if Release Please actually created a release..."
 
-          # Получаем последний релиз
-          LAST_RELEASE=$(gh release view --json createdAt,tagName -q '.createdAt' 2>/dev/null || true)
+          # Получаем время создания последнего релиза
+          LAST_RELEASE_TIME=$(gh release view --json createdAt -q '.createdAt' 2>/dev/null || true)
 
-          if [ -z "$LAST_RELEASE" ]; then
+          if [ -z "$LAST_RELEASE_TIME" ]; then
             echo "No release found. Skipping."
             echo "should_build=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # Время завершения Release Please workflow
-          WORKFLOW_TIME="${{ github.event.workflow_run.updated_at }}"
+          # Время начала и конца Release Please workflow
+          START="${{ github.event.workflow_run.run_started_at }}"
+          END="${{ github.event.workflow_run.updated_at }}"
 
-          echo "Release created at: $LAST_RELEASE"
-          echo "Workflow finished at: $WORKFLOW_TIME"
+          echo "Release created at: $LAST_RELEASE_TIME"
+          echo "Release Please started at: $START"
+          echo "Release Please finished at: $END"
 
-          # Если релиз создан ПОСЛЕ завершения Release Please → это новый релиз
-          if [[ "$LAST_RELEASE" > "$WORKFLOW_TIME" ]]; then
+          # Проверяем, что релиз создан в интервале [START, END]
+          if [[ "$LAST_RELEASE_TIME" > "$START" && "$LAST_RELEASE_TIME" < "$END" ]]; then
             echo "New release detected!"
             echo "should_build=true" >> $GITHUB_OUTPUT
           else
-            echo "No new release. Skipping."
+            echo "Release was not created during this run. Skipping."
             echo "should_build=false" >> $GITHUB_OUTPUT
           fi
         env:
