@@ -22,9 +22,16 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      # Если релиз создан — запускаем сборку вручную
-      - name: Trigger Release Build
+      # Если релиз создан — создаём issue-комментарий, который поймает другой workflow
+      - name: Emit release created signal
         if: ${{ steps.release.outputs.release_created }}
-        run: gh workflow run release-build.yml
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "release-created" >> release_signal.txt
+        shell: bash
+
+      - name: Upload signal artifact
+        if: ${{ steps.release.outputs.release_created }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-signal
+          path: release_signal.txt

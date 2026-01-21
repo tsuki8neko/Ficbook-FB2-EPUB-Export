@@ -1,0 +1,33 @@
+name: Trigger Release Build
+
+on:
+  workflow_run:
+    workflows: ["Release Please"]
+    types:
+      - completed
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release signal
+        uses: actions/download-artifact@v4
+        with:
+          name: release-signal
+        continue-on-error: true
+
+      - name: Check if release was created
+        id: check
+        run: |
+          if [ -f release_signal.txt ]; then
+            echo "created=true" >> $GITHUB_OUTPUT
+          else
+            echo "created=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger Release Build
+        if: ${{ steps.check.outputs.created == 'true' }}
+        run: gh workflow run release-build.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
