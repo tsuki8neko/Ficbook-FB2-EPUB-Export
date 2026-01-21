@@ -15,22 +15,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download release-please manifest
-        uses: actions/download-artifact@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
         with:
-          name: release-please-manifest
-        continue-on-error: true
+          fetch-depth: 0
 
-      - name: Check if release was created
+      - name: Check if release manifest exists
         id: check_release
         run: |
-          if [ -f "release-please-manifest.json" ]; then
-            echo "Release manifest found — release was created."
-            echo "should_build=true" >> $GITHUB_OUTPUT
-          else
-            echo "No release manifest — release was NOT created."
+          if [ ! -f ".release-please-manifest.json" ]; then
+            echo "Manifest file not found — release not created."
             echo "should_build=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
+
+          echo "Manifest file found — release was created."
+          echo "should_build=true" >> $GITHUB_OUTPUT
 
       - name: Stop if no release
         if: steps.check_release.outputs.should_build == 'false'
