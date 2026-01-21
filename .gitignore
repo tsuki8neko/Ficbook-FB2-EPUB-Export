@@ -6,3 +6,4 @@ dist/
 build/
 .idea
 structure
+.github/workflows/release-build2.yml
