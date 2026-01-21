@@ -1,74 +1,35 @@
-name: release-build
+name: Release Build
+
+on:
+  workflow_dispatch:
 
 permissions:
   contents: write
 
-on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag name (e.g. v1.2.3)'
-        required: true
-  push:
-    tags:
-      - 'v*'
-
 jobs:
-  build-and-upload:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install dependencies
-        run: npm install
+      - run: npm install
+      - run: npm run build
 
-      - name: Determine version
-        id: clean_version
+      - name: Get latest release tag
+        id: tag
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/v}"
-            TAG_NAME="${GITHUB_REF#refs/tags/}"
-          else
-            TAG_NAME="${{ github.event.inputs.tag }}"
-            VERSION="${TAG_NAME#v}"
-          fi
+          TAG=$(gh release view --json tagName -q .tagName)
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
-
-      - name: Update version in header
+      - name: Upload file to release
         run: |
-          sed -i "s|@version.*|@version      ${{ steps.clean_version.outputs.version }}|" tampermonkey-header.js
-
-      - name: Build userscript
-        run: npm run build
-
-      #  НОВЫЕ ШАГИ ДЛЯ GREASYFORK
-      - name: Copy built userscript to repo root
-        run: cp build/ficbook-export.user.js ficbook-export.user.js
-
-      - name: Commit updated userscript
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add ficbook-export.user.js
-          git commit -m "Update userscript" || echo "No changes to commit"
-          git push
-
-      #  ОСТАВЛЯЕМ ВЫГРУЗКУ В RELEASE
-      - name: Upload artifact to release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.clean_version.outputs.tag_name }}
-          files: build/ficbook-export.user.js
+          gh release upload "${{ steps.tag.outputs.tag }}" build/ficbook-export.user.js --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

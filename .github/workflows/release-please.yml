@@ -1,23 +1,26 @@
 name: Release Please
 
+on:
+  push:
+    branches: [master]
+
 permissions:
   contents: write
   pull-requests: write
 
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - master
-
 jobs:
-  release-please:
+  release:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Release Please
-        uses: googleapis/release-please-action@v4
+      - uses: google-github-actions/release-please-action@v4
+        id: release
         with:
-          release-type: simple
+          release-type: node
           token: ${{ secrets.GITHUB_TOKEN }}
-          skip-github-release: false
-          include-component-in-tag: false
+
+      - name: Trigger release-build workflow
+        if: steps.release.outputs.release_created == 'true'
+        run: gh workflow run release-build.yml --repo "$GITHUB_REPOSITORY"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
