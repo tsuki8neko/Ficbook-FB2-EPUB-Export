@@ -1,6 +1,6 @@
 {
   "name": "ficbook_fb2_epub_export",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "",
   "main": "cr.js",
   "scripts": {
@@ -8,7 +8,6 @@
     "build": "webpack --config webpack.release.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-
   "keywords": [],
   "author": "",
   "license": "ISC",
