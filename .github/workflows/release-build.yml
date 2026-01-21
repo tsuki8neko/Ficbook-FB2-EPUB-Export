@@ -1,15 +1,14 @@
 name: Release Build
 
 on:
-  push:
-    tags:
-      - 'v*'
-
-permissions:
-  contents: write
+  workflow_run:
+    workflows: ["Release Please"]
+    types:
+      - completed
 
 jobs:
-  build-and-upload:
+  build:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
