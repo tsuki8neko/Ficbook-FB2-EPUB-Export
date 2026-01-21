@@ -27,9 +27,22 @@ jobs:
         run: |
           TAG=$(gh release view --json tagName -q .tagName)
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload file to release
         run: |
           gh release upload "${{ steps.tag.outputs.tag }}" build/ficbook-export.user.js --clobber
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit built script to repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          cp build/ficbook-export.user.js ficbook-export.user.js
+          git add ficbook-export.user.js
+          git commit -m "Update built userscript for release ${{ steps.tag.outputs.tag }}"
+          git push origin master
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
