@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const pkg = require("./package.json");   // ← добавили
 
 module.exports = {
     entry: "./src/main.js",
@@ -29,6 +30,12 @@ module.exports = {
                 compiler.hooks.emit.tap("AddHeader", (compilation) => {
                     let header = fs.readFileSync("./tampermonkey-header.js", "utf8");
 
+                    // 🔥 Подставляем версию из package.json
+                    header = header.replace(
+                        /@version\s+.*/,
+                        `// @version     ${pkg.version}`
+                    );
+
                     // Формируем дату сборки
                     const now = new Date();
                     const buildDate = now.toISOString().replace("T", " ").substring(0, 16);
@@ -41,7 +48,7 @@ module.exports = {
 
                     // Автоматическое выравнивание всех @ключей
                     header = header.replace(/\/\/ @(\w+)\s+(.*)/g, (match, key, value) => {
-                        const padded = key.padEnd(12, " "); // ширина 12 символов
+                        const padded = key.padEnd(12, " ");
                         return `// @${padded}${value}`;
                     });
 
@@ -56,6 +63,4 @@ module.exports = {
             }
         }
     ]
-
-
 };
