@@ -1,7 +1,7 @@
 name: Trigger Release Build
 
 on:
-  pull_request:
+  issues:
     types: [labeled]
 
 jobs:
