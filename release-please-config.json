@@ -1,7 +1,7 @@
 {
   "packages": {
     ".": {
-      "release-type": "simple",
+      "release-type": "node",
       "include-component-in-tag": false,
       "skip-github-release": false,
       "changelog-path": "CHANGELOG.md"
