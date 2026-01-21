@@ -1,9 +1,9 @@
 name: Release Build
 
 on:
-  release:
-    types: [published, created]
-
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
