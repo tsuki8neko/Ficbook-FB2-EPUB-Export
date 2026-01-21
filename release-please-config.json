@@ -2,6 +2,8 @@
   "packages": {
     ".": {
       "release-type": "simple",
+      "include-component-in-tag": false,
+      "skip-github-release": false,
       "changelog-path": "CHANGELOG.md"
     }
   }
