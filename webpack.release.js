@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const pkg = require("./package.json");   // ← добавили
+const pkg = require("./package.json");
 
 module.exports = {
     entry: "./src/main.js",
@@ -43,11 +43,12 @@ module.exports = {
                     // Вставляем @build сразу после @version
                     header = header.replace(
                         /(@version[^\n]*)/,
-                        `$1\n// @build        ${buildDate}`
+                        `$1\n// @build       ${buildDate}`
                     );
 
-                    // Автоматическое выравнивание всех @ключей
+                    // 🔥 Автоматическое выравнивание всех @ключей, кроме version и build
                     header = header.replace(/\/\/ @(\w+)\s+(.*)/g, (match, key, value) => {
+                        if (key === "version" || key === "build") return match;
                         const padded = key.padEnd(12, " ");
                         return `// @${padded}${value}`;
                     });
