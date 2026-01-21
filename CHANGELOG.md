@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.21](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.0.20...v1.0.21) (2026-01-21)
+
+
+### Bug Fixes
+
+* test release trigger ([59a7599](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/59a75992bde38fdf4b48867c351135640b8e0c07))
+
 ## [1.0.20](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.0.19...v1.0.20) (2026-01-21)
 
 
