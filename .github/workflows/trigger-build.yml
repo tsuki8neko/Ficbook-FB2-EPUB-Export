@@ -1,40 +1,21 @@
-name: Trigger Release Build
+name: Trigger Build
 
 on:
-  issues:
-    types: [labeled]
+  workflow_run:
+    workflows: ["Release Please"]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
 
 jobs:
   trigger:
-    if: "github.event.label.name == 'autorelease: tagged'"
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install deps
-        run: npm install
-
-      - name: Build
-        run: npm run build
-
-      - name: Get latest release tag
-        id: get_tag
-        run: |
-          TAG=$(gh release view --json tagName -q .tagName)
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload file to release
-        run: gh release upload "${{ steps.get_tag.outputs.tag }}" build/ficbook-export.user.js --clobber
+      - name: Trigger release-build.yml
+        run: gh workflow run release-build.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
