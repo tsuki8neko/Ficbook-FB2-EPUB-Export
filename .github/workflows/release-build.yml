@@ -1,10 +1,9 @@
 name: Release Build
 
 on:
-  workflow_run:
-    workflows: ["Release Please"]
-    types:
-      - completed
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   build:
