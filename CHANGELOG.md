@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.4](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.2.3...v1.2.4) (2026-01-23)
+
+
+### Bug Fixes
+
+* add a title to one-chapter fanfics ([234aa71](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/234aa71f55140e22ae16b5692613256549596b02))
+
 ## [1.2.3](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.2.2...v1.2.3) (2026-01-21)
 
 
