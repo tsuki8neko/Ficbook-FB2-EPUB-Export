@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.2.4...v1.3.0) (2026-06-07)
+
+
+### Features
+
+* restore metadata parsing after Ficbook badge layout update ([a5aa31c](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/a5aa31c0efc9a35be8ea9e5d07a6d40085305e80))
+
 ## [1.2.4](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.2.3...v1.2.4) (2026-01-23)
 
 
