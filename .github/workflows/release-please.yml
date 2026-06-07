@@ -11,10 +11,16 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-      - uses: google-github-actions/release-please-action@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Release Please
         id: release
+        uses: googleapis/release-please-action@v4
         with:
           release-type: node
           token: ${{ secrets.GITHUB_TOKEN }}
