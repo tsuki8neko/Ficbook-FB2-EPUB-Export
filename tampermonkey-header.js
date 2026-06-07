@@ -1,12 +1,14 @@
 // ==UserScript==
-// @name         Ficbook FB2 & EPUB Export
-// @namespace    http://tampermonkey.net/
-// @version      1.0.2
-// @description  Download books from Ficbook in FB2 & EPUB without registration or limits
-// @author       tsuki8neko
-// @match        https://ficbook.net/readfic/*
-// @grant        none
-// @license      Apache-2.0
-// @updateURL    https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
-// @downloadURL  https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
+// @name            Ficbook FB2 & EPUB Export
+// @name:ru         Скачивание книг с фикбука в формате FB2 & EPUB
+// @namespace       http://tampermonkey.net/
+// @version         1.0.0
+// @description     Download books from Ficbook in FB2 & EPUB without registration or limits
+// @description:ru  Скрипт позволяет скачивать книги с Фикбука в форматах FB2 и EPUB без регистрации и ограничений
+// @author          tsuki8neko
+// @match           https://ficbook.net/readfic/*
+// @grant           none
+// @license         Apache-2.0
+// @updateURL       https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
+// @downloadURL     https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
 // ==/UserScript==
