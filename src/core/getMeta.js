@@ -50,8 +50,28 @@ export function getExtraData() {
 }
 
 export function getDirectionRatingStatus() {
-    const direction = document.querySelector(".fanfic-badges .badge-with-icon.direction .badge-text")?.innerText.trim() || "";
-    const rating = document.querySelector(".fanfic-badges .badge-with-icon[class*='badge-rating'] .badge-text")?.innerText.trim() || "";
-    const status = document.querySelector(".fanfic-badges .badge-with-icon[class*='badge-status'] .badge-text")?.innerText.trim() || "";
+    // const direction = document.querySelector(".fanfic-badges .badge-with-icon.direction .badge-text")?.innerText.trim() || "";
+    // const rating = document.querySelector(".fanfic-badges .badge-with-icon[class*='badge-rating'] .badge-text")?.innerText.trim() || "";
+    // const status = document.querySelector(".fanfic-badges .badge-with-icon[class*='badge-status'] .badge-text")?.innerText.trim() || "";
+
+    const root = document.querySelector(".fanfic-badges");
+    if (!root) return { direction: "НЕ НАЙДЕНО", rating: "НЕ НаЙДЕНО", status: "НЕ НАЙДЕНО" };
+
+    // Направленность (Слэш, Джен, Гет и т.п.)
+    const directionNode = root.querySelector("[class*='direction']");
+    const direction =
+        directionNode?.querySelector("span")?.innerText.trim() ||
+        directionNode?.innerText.trim() ||
+        "";
+
+    // Рейтинг (G, PG-13, R, NC-17…)
+    const ratingNode = root.querySelector("[class*='ds-label-rating']");
+    const rating = ratingNode?.innerText.trim() || "";
+
+    // Статус (В процессе, Завершён, Заморожен…)
+    const statusNode = root.querySelector("[class*='ds-label-status']");
+    const status = statusNode?.innerText.trim() || "";
+
+
     return { direction, rating, status };
 }
