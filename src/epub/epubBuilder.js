@@ -8,6 +8,8 @@ import { epubCss } from "./epubCss.js";
 import { buildTitlePage, buildChapterPage, buildTocXhtml } from "./epubTemplates.js";
 import { buildOpf } from "./epubOpf.js";
 import { buildNcx } from "./epubNcx.js";
+import { getOriginalAuthor } from "../core/getMeta.js";
+
 
 export async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
     // JSZip loader
@@ -27,10 +29,25 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
         alert("Авторы не найдены, возможно, изменился HTML Ficbook.");
         return;
     }
-    const mainAuthor = authors[0];
-    const coauthors = authors.slice(1).map(a => a.name).join(", ");
 
-    const { fandom, size, tags, description, notes, otherPublication } = getExtraData();
+    const originalAuthor = getOriginalAuthor();
+    const translators = authors.filter(a => a.role === "переводчик");
+
+    const mainAuthor =
+        authors.find(a => a.role === "автор") ||
+        originalAuthor ||
+        null;
+
+
+    const betas = authors.filter(a => a.role === "бета");
+    const gammas = authors.filter(a => a.role === "гамма");
+    const coauthors = authors.filter(a => a.role === "соавтор");
+
+    // const mainAuthor = authors[0];
+    // // const coauthors = authors.slice(1).map(a => a.name).join(", ");
+    // const coauthors = authors.slice(1);
+
+    const { fandom, size, tags, description, notes, otherPublication, pairings } = getExtraData();
     const { direction, rating, status } = getDirectionRatingStatus();
 
     // ---------- СБОР СПИСКА ГЛАВ ----------
@@ -43,7 +60,7 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
             return /^\d+$/.test(last);
         });
 
-    // Если список глав пуст — значит глава одна, и она уже открыта
+    // Если список глав пуст — значит глава одна, тавпмвап она уже открыта
     if (rawChapters.length === 0) {
         rawChapters = [{
             href: location.href
@@ -156,6 +173,9 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
         title,
         mainAuthor,
         coauthors,
+        translators,
+        betas,
+        gammas,
         direction,
         rating,
         size,
@@ -164,7 +184,8 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
         description,
         notes,
         otherPublication,
-        fandom
+        fandom,
+        pairings
     }));
 
     chapters.forEach(ch => {
@@ -177,13 +198,29 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
         title,
         mainAuthor,
         description,
-        chapters
+        chapters,
+        translators
     }));
 
     zip.file("OEBPS/toc.ncx", buildNcx(title, chapters));
 
-    const baseName = generateFileBaseName(mainAuthor.name, title);
+    // Основной автор (автор фанфика или автор оригинала)
+    const safeAuthorName = mainAuthor?.name || "UnknownAuthor";
+
+    // Переводчик (если есть)
+    const translatorName = translators[0]?.name || null;
+
+    // Добавляем переводчика в конец названия файла
+    let titlePart = title;
+
+    if (translatorName) {
+        titlePart += `_[${translatorName}]`;
+    }
+
+    // Генерация имени файла
+    const baseName = generateFileBaseName(safeAuthorName, titlePart);
     const fileName = `${baseName}.epub`;
+
 
     const blob = await zip.generateAsync({
         type: "blob",

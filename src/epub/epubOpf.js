@@ -1,6 +1,6 @@
 import { escapeXml } from "../utils/escapeXml.js";
 
-export function buildOpf({ title, mainAuthor, description, chapters }) {
+export function buildOpf({ title, mainAuthor, description, chapters, translators }) {
     const now = new Date();
     const isoDate = now.toISOString().split("T")[0];
 
@@ -28,7 +28,11 @@ export function buildOpf({ title, mainAuthor, description, chapters }) {
 
         <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
             <dc:title>${escapeXml(title)}</dc:title>
-            <dc:creator>${escapeXml(mainAuthor.name)}</dc:creator>
+            <dc:creator>${escapeXml(
+        mainAuthor?.name ||
+        translators?.[0]?.name ||
+        "UnknownAuthor"
+    )}</dc:creator>
             <dc:language>ru</dc:language>
             <dc:identifier id="BookId">urn:uuid:${Date.now()}</dc:identifier>
             <dc:date>${isoDate}</dc:date>
@@ -36,12 +40,15 @@ export function buildOpf({ title, mainAuthor, description, chapters }) {
             <dc:description>${escapeXml(description.slice(0, 500))}</dc:description>
             <meta name="source" content="${escapeXml(location.href)}"/>
         </metadata>
+
         <manifest>
             ${manifest}
         </manifest>
+
         <spine toc="ncx">
             ${spine}
         </spine>
-    </package>
+
+</package>
 `.trim();
 }

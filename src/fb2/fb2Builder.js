@@ -8,6 +8,8 @@ import { generateFileBaseName } from "../utils/generateFileName.js";
 import { buildFb2Header } from "./fb2Header.js";
 import { buildFb2Toc } from "./fb2Toc.js";
 import { buildFb2Body } from "./fb2Body.js";
+import { getOriginalAuthor, getOriginalWork } from "../core/getMeta.js";
+
 
 export async function createFB2(onProgress = () => {}, isCancelled = () => false) {
     const title = getTitle();
@@ -16,16 +18,42 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
         alert("Авторы не найдены, возможно, изменился HTML Ficbook.");
         return;
     }
-    const mainAuthor = authors[0];
-    const coauthors = authors.slice(1).map(a => a.name).join(", ");
+    const originalAuthor = getOriginalAuthor();
+    const originalWork = getOriginalWork();
 
-    const { fandom, size, tags, description, notes, otherPublication } = getExtraData();
+    // const mainAuthor =
+    //     authors.find(a => a.role === "автор") ||
+    //     authors.find(a => a.role === "переводчик") ||
+    //     authors[0];
+
+    const translators = authors.filter(a => a.role === "переводчик");
+
+    const mainAuthor =
+        authors.find(a => a.role === "автор") ||
+        originalAuthor ||   // ← вот это ключ
+        null;
+
+    // Остальные роли
+    const betas = authors.filter(a => a.role === "бета");
+    const gammas = authors.filter(a => a.role === "гамма");
+    const coauthors = authors.filter(a => a.role === "соавтор");
+
+
+    // const mainAuthor = authors[0];
+    // const coauthors = authors.slice(1);
+
+    const { fandom, size, tags, description, notes, otherPublication, pairings } = getExtraData();
     const { direction, rating, status } = getDirectionRatingStatus();
 
     let fb2Header = buildFb2Header({
         title,
         mainAuthor,
         coauthors,
+        originalAuthor,
+        originalWork,
+        translators,
+        betas,
+        gammas,
         direction,
         rating,
         size,
@@ -34,7 +62,8 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
         description,
         notes,
         otherPublication,
-        fandom
+        fandom,
+        pairings
     });
 
     let fb2Chapters = "";
@@ -160,8 +189,25 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
     let fb2Toc = buildFb2Toc(tocEntries);
     let fb2Body = buildFb2Body(fb2Chapters);
 
-    const baseName = generateFileBaseName(mainAuthor.name, title);
+    // Основной автор (автор фанфика или автор оригинала)
+    const safeAuthorName = mainAuthor?.name || "UnknownAuthor";
+
+    // Переводчик (если есть)
+    const translatorName = translators[0]?.name || null;
+
+    // Добавляем переводчика в конец названия файла
+    let titlePart = title;
+
+    if (translatorName) {
+        titlePart += `_[${translatorName}]`;
+    }
+
+    // Генерация имени файла
+    const baseName = generateFileBaseName(safeAuthorName, titlePart);
     const fileName = `${baseName}.fb2`;
+
+
+
 
     let blob = new Blob(
         [fb2Header + fb2Toc + fb2Body],

@@ -3,5 +3,5 @@ export function sanitizeFilePart(str) {
 }
 
 export function generateFileBaseName(mainAuthorName, title) {
-    return `${sanitizeFilePart(mainAuthorName)}-_-${sanitizeFilePart(title)}`;
+    return `${sanitizeFilePart(mainAuthorName)}_-_${sanitizeFilePart(title)}`;
 }

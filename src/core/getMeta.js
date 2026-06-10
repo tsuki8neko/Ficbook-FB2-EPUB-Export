@@ -46,7 +46,20 @@ export function getExtraData() {
         ? otherPublicationBlock.innerText.trim()
         : "";
 
-    return { fandom, size, tags, description, notes, otherPublication };
+    // --- ПЕЙРИНГИ ---
+    const pairingBlock =
+        findBlock("Пэйринг и персонажи:") ||
+        findBlock("Пейринг и персонажи:");
+
+    const pairings = pairingBlock
+        ? Array.from(pairingBlock.querySelectorAll("a"))
+            .map(a => a.innerText.trim())
+            .filter(Boolean)
+        : [];
+
+
+    return { fandom, size, tags, description, notes, otherPublication, pairings };
+
 }
 
 export function getDirectionRatingStatus() {
@@ -77,3 +90,49 @@ export function getDirectionRatingStatus() {
 
     return { direction, rating, status };
 }
+
+export function getOriginalAuthor() {
+    const blocks = document.querySelectorAll(".mb-10");
+
+    for (const block of blocks) {
+        const strong = block.querySelector("strong");
+        if (!strong) continue;
+
+        if (strong.innerText.trim().startsWith("Автор оригинала")) {
+            const link = block.querySelector("a");
+            return {
+                name: link?.innerText.trim() || "",
+                url: link?.href || ""
+            };
+        }
+    }
+
+    return null;
+}
+
+export function getOriginalWork() {
+    const blocks = document.querySelectorAll(".mb-10");
+
+    for (const block of blocks) {
+        const strong = block.querySelector("strong");
+        if (!strong) continue;
+
+        if (strong.innerText.trim().startsWith("Оригинал")) {
+            const link = block.querySelector("a");
+            if (!link) return null;
+
+            let url = link.href;
+
+            // Если это ficbook-редирект — извлекаем оригинал
+            if (url.includes("/away?url=")) {
+                const real = url.split("/away?url=")[1];
+                url = decodeURIComponent(real);
+            }
+
+            return { url };
+        }
+    }
+
+    return null;
+}
+

@@ -7,7 +7,7 @@
 // @description:ru  Скрипт позволяет скачивать книги с Фикбука в форматах FB2 и EPUB без регистрации и ограничений
 // @author          tsuki8neko
 // @match           https://ficbook.net/readfic/*
-// @grant           none
+// @grant           GM_xmlhttpRequest
 // @license         Apache-2.0
 // @updateURL       https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
 // @downloadURL     https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js

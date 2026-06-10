@@ -5,6 +5,9 @@ export function buildTitlePage({
                                    title,
                                    mainAuthor,
                                    coauthors,
+                                   translators,
+                                   betas,
+                                   gammas,
                                    direction,
                                    rating,
                                    size,
@@ -13,7 +16,8 @@ export function buildTitlePage({
                                    description,
                                    notes,
                                    otherPublication,
-                                   fandom
+                                   fandom,
+                                   pairings
                                }) {
     return `
 <?xml version="1.0" encoding="utf-8"?>
@@ -29,9 +33,59 @@ export function buildTitlePage({
 
         <div class="meta-block">
             <p><strong>Направленность:</strong> ${escapeXml(direction)}</p>
-            <p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)}</p>
-            ${coauthors ? `<p><strong>Соавторы:</strong> ${escapeXml(coauthors)}</p>` : ""}
+            
+            <p><strong>Автор:</strong> 
+                ${escapeXml(mainAuthor.name)} (${escapeXml(mainAuthor.url)})
+            </p>
+            
+            ${translators?.length
+                    ? `<p><strong>Переводчик:</strong> ${
+                        translators.map(a => `${a.name} (${a.url})`).join(", ")
+                    }</p>`
+                    : ""
+                }
+            
+            ${betas?.length
+                    ? `<p><strong>Бета:</strong> ${
+                        betas.map(a => `${a.name} (${a.url})`).join(", ")
+                    }</p>`
+                    : ""
+                }
+            
+            ${gammas?.length
+                    ? `<p><strong>Гамма:</strong> ${
+                        gammas.map(a => `${a.name} (${a.url})`).join(", ")
+                    }</p>`
+                    : ""
+                }
+            
+            ${coauthors?.length
+                    ? `<p><strong>Соавторы:</strong> ${
+                        coauthors
+                            .map(a => `${a.name} (${a.url})`)
+                            .join(", ")
+                    }</p>`
+                    : ""
+                }
+            
+ <!--          
+            ${coauthors?.length
+                ? `<p><strong>Соавторы:</strong> ${
+                    coauthors
+                    .map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`)
+                    .join(", ")
+                }</p>`
+                : ""
+            }
+-->
+            
             <p><strong>Фэндом:</strong> ${escapeXml(fandom)}</p>
+            
+            ${pairings?.length
+                ? `<p><strong>Пейринги и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>`
+                : ""
+            }
+
             <p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>
             <p><strong>Размер:</strong> ${escapeXml(size)} слов</p>
             <p><strong>Статус:</strong> ${escapeXml(status)}</p>
