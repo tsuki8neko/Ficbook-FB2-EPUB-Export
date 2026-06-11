@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name        Ficbook FB2 & EPUB Export
+// @name:ru         Скачивание книг с фикбука в формате FB2 & EPUB
 // @namespace   http://tampermonkey.net/
-// @version     1.3.0
-// @build       2026-06-07 05:03
+// @version     1.4.0
+// @build       2026-06-11 03:24
 // @description Download books from Ficbook in FB2 & EPUB without registration or limits
+// @description:ru  Скрипт позволяет скачивать книги с Фикбука в форматах FB2 и EPUB без регистрации и ограничений
 // @author      tsuki8neko
 // @match       https://ficbook.net/readfic/*
-// @grant       none
+// @grant       GM_xmlhttpRequest
 // @license     Apache-2.0
 // @updateURL   https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
 // @downloadURL https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
@@ -24,14 +26,31 @@ function getTitle() {
 }
 
 ;// ./src/core/getAuthors.js
+// export function getAuthors() {
+//     const hat = document.querySelector(".fanfic-hat-body");
+//     const authorsNodes = hat.querySelectorAll(".creator-info .creator-username");
+//     return Array.from(authorsNodes).map(a => ({
+//         name: a.innerText.trim(),
+//         url: a.href
+//     }));
+// }
+
 function getAuthors() {
     const hat = document.querySelector(".fanfic-hat-body");
-    const authorsNodes = hat.querySelectorAll(".creator-info .creator-username");
-    return Array.from(authorsNodes).map(a => ({
-        name: a.innerText.trim(),
-        url: a.href
-    }));
+    const creators = hat.querySelectorAll(".creator-info");
+
+    return Array.from(creators).map(c => {
+        const nameNode = c.querySelector(".creator-username");
+        const roleNode = c.querySelector(".small-text.text-muted");
+
+        return {
+            name: nameNode?.innerText.trim() || "",
+            url: nameNode?.href || "",
+            role: roleNode?.innerText.trim().toLowerCase() || "автор"
+        };
+    });
 }
+
 
 ;// ./src/core/getMeta.js
 function getExtraData() {
@@ -82,7 +101,20 @@ function getExtraData() {
         ? otherPublicationBlock.innerText.trim()
         : "";
 
-    return { fandom, size, tags, description, notes, otherPublication };
+    // --- ПЕЙРИНГИ ---
+    const pairingBlock =
+        findBlock("Пэйринг и персонажи:") ||
+        findBlock("Пейринг и персонажи:");
+
+    const pairings = pairingBlock
+        ? Array.from(pairingBlock.querySelectorAll("a"))
+            .map(a => a.innerText.trim())
+            .filter(Boolean)
+        : [];
+
+
+    return { fandom, size, tags, description, notes, otherPublication, pairings };
+
 }
 
 function getDirectionRatingStatus() {
@@ -113,6 +145,52 @@ function getDirectionRatingStatus() {
 
     return { direction, rating, status };
 }
+
+function getOriginalAuthor() {
+    const blocks = document.querySelectorAll(".mb-10");
+
+    for (const block of blocks) {
+        const strong = block.querySelector("strong");
+        if (!strong) continue;
+
+        if (strong.innerText.trim().startsWith("Автор оригинала")) {
+            const link = block.querySelector("a");
+            return {
+                name: link?.innerText.trim() || "",
+                url: link?.href || ""
+            };
+        }
+    }
+
+    return null;
+}
+
+function getOriginalWork() {
+    const blocks = document.querySelectorAll(".mb-10");
+
+    for (const block of blocks) {
+        const strong = block.querySelector("strong");
+        if (!strong) continue;
+
+        if (strong.innerText.trim().startsWith("Оригинал")) {
+            const link = block.querySelector("a");
+            if (!link) return null;
+
+            let url = link.href;
+
+            // Если это ficbook-редирект — извлекаем оригинал
+            if (url.includes("/away?url=")) {
+                const real = url.split("/away?url=")[1];
+                url = decodeURIComponent(real);
+            }
+
+            return { url };
+        }
+    }
+
+    return null;
+}
+
 
 ;// ./src/utils/escapeXml.js
 function escapeXml(str) {
@@ -238,7 +316,7 @@ function sanitizeFilePart(str) {
 }
 
 function generateFileBaseName(mainAuthorName, title) {
-    return `${sanitizeFilePart(mainAuthorName)}-_-${sanitizeFilePart(title)}`;
+    return `${sanitizeFilePart(mainAuthorName)}_-_${sanitizeFilePart(title)}`;
 }
 
 ;// ./src/fb2/fb2Header.js
@@ -249,6 +327,11 @@ function buildFb2Header({
                                    title,
                                    mainAuthor,
                                    coauthors,
+                                   originalAuthor,
+                                   originalWork,
+                                   translators,
+                                   betas,
+                                   gammas,
                                    direction,
                                    rating,
                                    size,
@@ -257,7 +340,8 @@ function buildFb2Header({
                                    description,
                                    notes,
                                    otherPublication,
-                                   fandom
+                                   fandom,
+                                   pairings
                                }) {
     return `<?xml version="1.0" encoding="utf-8"?>
 <FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -277,11 +361,62 @@ function buildFb2Header({
             <book-title>${escapeXml(title)}</book-title>
 
             <annotation>
-                <p><strong>${escapeXml(title)}</strong> (${escapeXml(location.href)})</p>
+                <p><strong>Ссылка на работу:</strong> ${escapeXml(location.href)}</p>
                 <p><strong>Направленность:</strong> ${escapeXml(direction)}</p>
-                <p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)} (${escapeXml(mainAuthor.url)})</p>
-                ${coauthors ? `<p><strong>Соавторы:</strong> ${escapeXml(coauthors)}</p>` : ""}
+                
+
+                ${mainAuthor
+                    ? `<p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)} (${escapeXml(mainAuthor.url)})</p>`
+                    : `<p><strong>Автор:</strong> Оригинальный автор неизвестен</p>`
+                }
+
+
+        
+                ${originalAuthor && mainAuthor?.name !== originalAuthor.name
+                    ? `<p><strong>Автор оригинала:</strong> ${escapeXml(originalAuthor.name)} (${escapeXml(originalAuthor.url)})</p>`
+                    : ""
+                }
+
+        
+                ${originalWork
+                    ? `<p><strong>Оригинал:</strong> ${escapeXml(originalWork.url)}</p>`
+                    : ""
+                }
+        
+                ${translators?.length
+                    ? `<p><strong>Переводчик:</strong> ${
+                    translators.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
+                    }</p>`
+                    : ""
+                }
+        
+                ${coauthors?.length
+                    ? `<p><strong>Соавторы:</strong> ${
+                    coauthors.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
+                    }</p>`
+                    : ""
+                }
+        
+                ${betas?.length
+                    ? `<p><strong>Бета:</strong> ${
+                    betas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
+                    }</p>`
+                    : ""
+                }
+        
+                ${gammas?.length
+                    ? `<p><strong>Гамма:</strong> ${
+                    gammas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
+                    }</p>`
+                    : ""
+                }
+                  
+                
                 <p><strong>Фэндом:</strong> ${escapeXml(fandom || "")}</p>
+                ${pairings?.length
+                    ? `<p><strong>Пейринг и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>`
+                    : ""
+                }
                 <p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>
                 <p><strong>Размер:</strong> ${escapeXml(size)} слов</p>
                 <p><strong>Статус:</strong> ${escapeXml(status)}</p>
@@ -344,6 +479,8 @@ ${fb2Chapters}
 
 
 
+
+
 async function createFB2(onProgress = () => {}, isCancelled = () => false) {
     const title = getTitle();
     const authors = getAuthors();
@@ -351,16 +488,42 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
         alert("Авторы не найдены, возможно, изменился HTML Ficbook.");
         return;
     }
-    const mainAuthor = authors[0];
-    const coauthors = authors.slice(1).map(a => a.name).join(", ");
+    const originalAuthor = getOriginalAuthor();
+    const originalWork = getOriginalWork();
 
-    const { fandom, size, tags, description, notes, otherPublication } = getExtraData();
+    // const mainAuthor =
+    //     authors.find(a => a.role === "автор") ||
+    //     authors.find(a => a.role === "переводчик") ||
+    //     authors[0];
+
+    const translators = authors.filter(a => a.role === "переводчик");
+
+    const mainAuthor =
+        authors.find(a => a.role === "автор") ||
+        originalAuthor ||   // ← вот это ключ
+        null;
+
+    // Остальные роли
+    const betas = authors.filter(a => a.role === "бета");
+    const gammas = authors.filter(a => a.role === "гамма");
+    const coauthors = authors.filter(a => a.role === "соавтор");
+
+
+    // const mainAuthor = authors[0];
+    // const coauthors = authors.slice(1);
+
+    const { fandom, size, tags, description, notes, otherPublication, pairings } = getExtraData();
     const { direction, rating, status } = getDirectionRatingStatus();
 
     let fb2Header = buildFb2Header({
         title,
         mainAuthor,
         coauthors,
+        originalAuthor,
+        originalWork,
+        translators,
+        betas,
+        gammas,
         direction,
         rating,
         size,
@@ -369,7 +532,8 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
         description,
         notes,
         otherPublication,
-        fandom
+        fandom,
+        pairings
     });
 
     let fb2Chapters = "";
@@ -495,8 +659,25 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
     let fb2Toc = buildFb2Toc(tocEntries);
     let fb2Body = buildFb2Body(fb2Chapters);
 
-    const baseName = generateFileBaseName(mainAuthor.name, title);
+    // Основной автор (автор фанфика или автор оригинала)
+    const safeAuthorName = mainAuthor?.name || "UnknownAuthor";
+
+    // Переводчик (если есть)
+    const translatorName = translators[0]?.name || null;
+
+    // Добавляем переводчика в конец названия файла
+    let titlePart = title;
+
+    if (translatorName) {
+        titlePart += `_[${translatorName}]`;
+    }
+
+    // Генерация имени файла
+    const baseName = generateFileBaseName(safeAuthorName, titlePart);
     const fileName = `${baseName}.fb2`;
+
+
+
 
     let blob = new Blob(
         [fb2Header + fb2Toc + fb2Body],
@@ -563,6 +744,9 @@ function buildTitlePage({
                                    title,
                                    mainAuthor,
                                    coauthors,
+                                   translators,
+                                   betas,
+                                   gammas,
                                    direction,
                                    rating,
                                    size,
@@ -571,7 +755,8 @@ function buildTitlePage({
                                    description,
                                    notes,
                                    otherPublication,
-                                   fandom
+                                   fandom,
+                                   pairings
                                }) {
     return `
 <?xml version="1.0" encoding="utf-8"?>
@@ -586,10 +771,63 @@ function buildTitlePage({
         <h2>${escapeXml(mainAuthor.name)}</h2>
 
         <div class="meta-block">
+        
+            <p><strong>Ссылка на работу:</strong> ${escapeXml(location.href)}</p>
+            
             <p><strong>Направленность:</strong> ${escapeXml(direction)}</p>
-            <p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)}</p>
-            ${coauthors ? `<p><strong>Соавторы:</strong> ${escapeXml(coauthors)}</p>` : ""}
+            
+            <p><strong>Автор:</strong> 
+                ${escapeXml(mainAuthor.name)} (${escapeXml(mainAuthor.url)})
+            </p>
+            
+            ${translators?.length
+                    ? `<p><strong>Переводчик:</strong> ${
+                        translators.map(a => `${a.name} (${a.url})`).join(", ")
+                    }</p>`
+                    : ""
+                }
+            
+            ${betas?.length
+                    ? `<p><strong>Бета:</strong> ${
+                        betas.map(a => `${a.name} (${a.url})`).join(", ")
+                    }</p>`
+                    : ""
+                }
+            
+            ${gammas?.length
+                    ? `<p><strong>Гамма:</strong> ${
+                        gammas.map(a => `${a.name} (${a.url})`).join(", ")
+                    }</p>`
+                    : ""
+                }
+            
+            ${coauthors?.length
+                    ? `<p><strong>Соавторы:</strong> ${
+                        coauthors
+                            .map(a => `${a.name} (${a.url})`)
+                            .join(", ")
+                    }</p>`
+                    : ""
+                }
+            
+ <!--          
+            ${coauthors?.length
+                ? `<p><strong>Соавторы:</strong> ${
+                    coauthors
+                    .map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`)
+                    .join(", ")
+                }</p>`
+                : ""
+            }
+-->
+            
             <p><strong>Фэндом:</strong> ${escapeXml(fandom)}</p>
+            
+            ${pairings?.length
+                ? `<p><strong>Пейринги и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>`
+                : ""
+            }
+
             <p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>
             <p><strong>Размер:</strong> ${escapeXml(size)} слов</p>
             <p><strong>Статус:</strong> ${escapeXml(status)}</p>
@@ -650,7 +888,7 @@ function buildTocXhtml(chapters) {
 ;// ./src/epub/epubOpf.js
 
 
-function buildOpf({ title, mainAuthor, description, chapters }) {
+function buildOpf({ title, mainAuthor, description, chapters, translators }) {
     const now = new Date();
     const isoDate = now.toISOString().split("T")[0];
 
@@ -678,7 +916,11 @@ function buildOpf({ title, mainAuthor, description, chapters }) {
 
         <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
             <dc:title>${escapeXml(title)}</dc:title>
-            <dc:creator>${escapeXml(mainAuthor.name)}</dc:creator>
+            <dc:creator>${escapeXml(
+        mainAuthor?.name ||
+        translators?.[0]?.name ||
+        "UnknownAuthor"
+    )}</dc:creator>
             <dc:language>ru</dc:language>
             <dc:identifier id="BookId">urn:uuid:${Date.now()}</dc:identifier>
             <dc:date>${isoDate}</dc:date>
@@ -686,13 +928,16 @@ function buildOpf({ title, mainAuthor, description, chapters }) {
             <dc:description>${escapeXml(description.slice(0, 500))}</dc:description>
             <meta name="source" content="${escapeXml(location.href)}"/>
         </metadata>
+
         <manifest>
             ${manifest}
         </manifest>
+
         <spine toc="ncx">
             ${spine}
         </spine>
-    </package>
+
+</package>
 `.trim();
 }
 
@@ -743,6 +988,8 @@ function buildNcx(title, chapters) {
 
 
 
+
+
 async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
     // JSZip loader
     if (!window.JSZip) {
@@ -761,10 +1008,25 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
         alert("Авторы не найдены, возможно, изменился HTML Ficbook.");
         return;
     }
-    const mainAuthor = authors[0];
-    const coauthors = authors.slice(1).map(a => a.name).join(", ");
 
-    const { fandom, size, tags, description, notes, otherPublication } = getExtraData();
+    const originalAuthor = getOriginalAuthor();
+    const translators = authors.filter(a => a.role === "переводчик");
+
+    const mainAuthor =
+        authors.find(a => a.role === "автор") ||
+        originalAuthor ||
+        null;
+
+
+    const betas = authors.filter(a => a.role === "бета");
+    const gammas = authors.filter(a => a.role === "гамма");
+    const coauthors = authors.filter(a => a.role === "соавтор");
+
+    // const mainAuthor = authors[0];
+    // // const coauthors = authors.slice(1).map(a => a.name).join(", ");
+    // const coauthors = authors.slice(1);
+
+    const { fandom, size, tags, description, notes, otherPublication, pairings } = getExtraData();
     const { direction, rating, status } = getDirectionRatingStatus();
 
     // ---------- СБОР СПИСКА ГЛАВ ----------
@@ -777,7 +1039,7 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
             return /^\d+$/.test(last);
         });
 
-    // Если список глав пуст — значит глава одна, и она уже открыта
+    // Если список глав пуст — значит глава одна, тавпмвап она уже открыта
     if (rawChapters.length === 0) {
         rawChapters = [{
             href: location.href
@@ -890,6 +1152,9 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
         title,
         mainAuthor,
         coauthors,
+        translators,
+        betas,
+        gammas,
         direction,
         rating,
         size,
@@ -898,7 +1163,8 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
         description,
         notes,
         otherPublication,
-        fandom
+        fandom,
+        pairings
     }));
 
     chapters.forEach(ch => {
@@ -911,13 +1177,29 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
         title,
         mainAuthor,
         description,
-        chapters
+        chapters,
+        translators
     }));
 
     zip.file("OEBPS/toc.ncx", buildNcx(title, chapters));
 
-    const baseName = generateFileBaseName(mainAuthor.name, title);
+    // Основной автор (автор фанфика или автор оригинала)
+    const safeAuthorName = mainAuthor?.name || "UnknownAuthor";
+
+    // Переводчик (если есть)
+    const translatorName = translators[0]?.name || null;
+
+    // Добавляем переводчика в конец названия файла
+    let titlePart = title;
+
+    if (translatorName) {
+        titlePart += `_[${translatorName}]`;
+    }
+
+    // Генерация имени файла
+    const baseName = generateFileBaseName(safeAuthorName, titlePart);
     const fileName = `${baseName}.epub`;
+
 
     const blob = await zip.generateAsync({
         type: "blob",
