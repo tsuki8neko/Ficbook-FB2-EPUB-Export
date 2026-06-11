@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.3.0...v1.4.0) (2026-06-11)
+
+
+### Features
+
+* add saving link to fic ([2dd4628](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/2dd4628dcc4e1818b42fe36ee7b45e675064a20b))
+* unified author logic, translator in filename, OPF fixes ([84a8d85](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/84a8d85c5ab868219aea9d3596d55f6f93ed2fcc))
+
 ## [1.3.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.2.4...v1.3.0) (2026-06-07)
 
 
