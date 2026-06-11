@@ -39,7 +39,7 @@ export function buildFb2Header({
             <book-title>${escapeXml(title)}</book-title>
 
             <annotation>
-                <p><strong>${escapeXml(title)}</strong> (${escapeXml(location.href)})</p>
+                <p><strong>Ссылка на работу:</strong> ${escapeXml(location.href)}</p>
                 <p><strong>Направленность:</strong> ${escapeXml(direction)}</p>
                 
 

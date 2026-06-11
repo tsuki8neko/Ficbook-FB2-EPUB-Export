@@ -32,6 +32,9 @@ export function buildTitlePage({
         <h2>${escapeXml(mainAuthor.name)}</h2>
 
         <div class="meta-block">
+        
+            <p><strong>Ссылка на работу:</strong> ${escapeXml(location.href)}</p>
+            
             <p><strong>Направленность:</strong> ${escapeXml(direction)}</p>
             
             <p><strong>Автор:</strong> 
