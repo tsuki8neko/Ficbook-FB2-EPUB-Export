@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.5.0...v1.6.0) (2026-06-12)
+
+
+### Features
+
+* add book series metadata to exported works ([8355431](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/83554312c58ae677b4b59877c70f37441694b6a0))
+
 ## [1.5.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.4.0...v1.5.0) (2026-06-12)
 
 
