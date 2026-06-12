@@ -22,7 +22,7 @@ export function buildFb2Header({
                                    pairings
                                }) {
     return `<?xml version="1.0" encoding="utf-8"?>
-<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:xlink="http://www.w3.org/1999/xlink">
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink"
     <stylesheet type="text/css">
         .body{font-family : Verdana, Geneva, Arial, Helvetica, sans-serif;}
         .p{margin:0.5em 0 0 0.3em; padding:0.2em; text-align:justify;}
