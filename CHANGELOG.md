@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.4.0...v1.5.0) (2026-06-12)
+
+
+### Features
+
+* add author notes and interactive EPUB footnotes ([85d9cb6](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/85d9cb616bb152f2f9e17f9454a2935d01dbae28))
+
 ## [1.4.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.3.0...v1.4.0) (2026-06-11)
 
 
