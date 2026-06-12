@@ -2,8 +2,8 @@
 // @name        Ficbook FB2 & EPUB Export
 // @name:ru         Скачивание книг с фикбука в формате FB2 & EPUB
 // @namespace   http://tampermonkey.net/
-// @version     1.5.0
-// @build       2026-06-12 13:44
+// @version     1.6.0
+// @build       2026-06-12 15:20
 // @description Download books from Ficbook in FB2 & EPUB without registration or limits
 // @description:ru  Скрипт позволяет скачивать книги с Фикбука в форматах FB2 и EPUB без регистрации и ограничений
 // @author      tsuki8neko
@@ -413,14 +413,19 @@ function buildFb2Header({
                                    notes,
                                    otherPublication,
                                    fandom,
-                                   pairings
+                                   pairings,
+                                   series
                                }) {
     return `<?xml version="1.0" encoding="utf-8"?>
-<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink"
+<FictionBook 
+    xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" 
+    xmlns:xlink="http://www.w3.org/1999/xlink">
+
     <stylesheet type="text/css">
         .body{font-family : Verdana, Geneva, Arial, Helvetica, sans-serif;}
         .p{margin:0.5em 0 0 0.3em; padding:0.2em; text-align:justify;}
     </stylesheet>
+
     <description>
         <title-info>
 
@@ -433,71 +438,82 @@ function buildFb2Header({
             <book-title>${escapeXml(title)}</book-title>
 
             <annotation>
+
                 <p><strong>Ссылка на работу:</strong> ${escapeXml(location.href)}</p>
                 <p><strong>Направленность:</strong> ${escapeXml(direction)}</p>
-                
 
                 ${mainAuthor
-                    ? `<p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)} (${escapeXml(mainAuthor.url)})</p>`
-                    : `<p><strong>Автор:</strong> Оригинальный автор неизвестен</p>`
-                }
+        ? `<p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)} (${escapeXml(mainAuthor.url)})</p>`
+        : `<p><strong>Автор:</strong> Оригинальный автор неизвестен</p>`
+    }
 
-
-        
                 ${originalAuthor && mainAuthor?.name !== originalAuthor.name
-                    ? `<p><strong>Автор оригинала:</strong> ${escapeXml(originalAuthor.name)} (${escapeXml(originalAuthor.url)})</p>`
-                    : ""
-                }
+        ? `<p><strong>Автор оригинала:</strong> ${escapeXml(originalAuthor.name)} (${escapeXml(originalAuthor.url)})</p>`
+        : ""
+    }
 
-        
                 ${originalWork
-                    ? `<p><strong>Оригинал:</strong> ${escapeXml(originalWork.url)}</p>`
-                    : ""
-                }
-        
+        ? `<p><strong>Оригинал:</strong> ${escapeXml(originalWork.url)}</p>`
+        : ""
+    }
+
                 ${translators?.length
-                    ? `<p><strong>Переводчик:</strong> ${
-                    translators.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-                    }</p>`
-                    : ""
-                }
-        
+        ? `<p><strong>Переводчик:</strong> ${
+            translators.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
+        }</p>`
+        : ""
+    }
+
                 ${coauthors?.length
-                    ? `<p><strong>Соавторы:</strong> ${
-                    coauthors.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-                    }</p>`
-                    : ""
-                }
-        
+        ? `<p><strong>Соавторы:</strong> ${
+            coauthors.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
+        }</p>`
+        : ""
+    }
+
                 ${betas?.length
-                    ? `<p><strong>Бета:</strong> ${
-                    betas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-                    }</p>`
-                    : ""
-                }
-        
+        ? `<p><strong>Бета:</strong> ${
+            betas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
+        }</p>`
+        : ""
+    }
+
                 ${gammas?.length
-                    ? `<p><strong>Гамма:</strong> ${
-                    gammas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-                    }</p>`
-                    : ""
-                }
-                  
-                
+        ? `<p><strong>Гамма:</strong> ${
+            gammas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
+        }</p>`
+        : ""
+    }
+
+                ${series
+        ? `<p><strong>Серия:</strong> ${escapeXml(series.name)} (${escapeXml(series.url)})</p>`
+        : ""
+    }
+
                 <p><strong>Фэндом:</strong> ${escapeXml(fandom || "")}</p>
+
                 ${pairings?.length
-                    ? `<p><strong>Пейринг и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>`
-                    : ""
-                }
+        ? `<p><strong>Пейринг и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>`
+        : ""
+    }
+
                 <p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>
                 <p><strong>Размер:</strong> ${escapeXml(size)} слов</p>
                 <p><strong>Статус:</strong> ${escapeXml(status)}</p>
                 <p><strong>Метки:</strong> ${escapeXml(tags || "")}</p>
+
+                <p></p>
+
                 <p><strong>Описание:</strong></p>
                 ${textToParagraphs(description)}
+
+                <p></p>
+
                 <p><strong>Примечания:</strong></p>
                 ${textToParagraphs(notes)}
+
                 <p><strong>Публикация на других ресурсах:</strong> ${escapeXml(otherPublication || "")}</p>
+
             </annotation>
 
             <date value="${new Date().toISOString().split("T")[0]}">${new Date().toLocaleDateString()}</date>
@@ -561,7 +577,27 @@ ${fb2Chapters}
 
 
 
-// 🔥 FB2: преобразование <footnote-ref/> в FB2-сноски со сквозной нумерацией
+// Очистка HTML‑сущностей, которые FB2 не поддерживает
+function cleanHtmlEntitiesForFb2(text) {
+    if (!text) return text;
+
+    return text
+        .replace(/&nbsp;/g, " ")
+        .replace(/&mdash;/g, "—")
+        .replace(/&ndash;/g, "–")
+        .replace(/&hellip;/g, "…")
+        .replace(/&laquo;/g, "«")
+        .replace(/&raquo;/g, "»")
+        .replace(/&copy;/g, "©")
+        .replace(/&reg;/g, "®")
+        .replace(/&bull;/g, "•")
+        .replace(/&middot;/g, "·")
+        // удаляем любые неизвестные сущности
+        .replace(/&([a-zA-Z0-9]+);/g, "$1");
+}
+
+
+// FB2: преобразование <footnote-ref/> в FB2-сноски со сквозной нумерацией
 function renderFb2Footnotes(xhtml, footnotes, globalIndexRef) {
     if (!footnotes || !footnotes.length) {
         return { content: xhtml, notes: [] };
@@ -573,31 +609,83 @@ function renderFb2Footnotes(xhtml, footnotes, globalIndexRef) {
     footnotes.forEach(n => {
         const globalNumber = globalIndexRef.value++;
 
-        // заменяем ссылку в тексте
-        const re = new RegExp(
+        // 1) Самозакрывающийся <footnote-ref .../>
+        const reSelfClosing = new RegExp(
             `<footnote-ref[^>]*id=["']${n.id}["'][^>]*\\/?>`,
             "g"
         );
 
-        content = content.replace(
-            re,
-            `<a l:href="#note_${n.id}" type="note">[${globalNumber}]</a>`
+        // 2) Полный <footnote-ref ...>...</footnote-ref>
+        const reFull = new RegExp(
+            `<footnote-ref[^>]*id=["']${n.id}["'][^>]*>[\\s\\S]*?<\\/footnote-ref>`,
+            "g"
         );
 
-        // сохраняем глобальную сноску
+        // Заменяем оба варианта
+        content = content
+            .replace(reSelfClosing, `<a xlink:href="#note_${n.id}" type="note">[${globalNumber}]</a>`)
+            .replace(reFull, `<a xlink:href="#note_${n.id}" type="note">[${globalNumber}]</a>`);
+
         notes.push({
             id: n.id,
             number: globalNumber,
-            html: n.html
+            html: cleanHtmlEntitiesForFb2(n.html)
         });
     });
+
+    // Удаляем ВСЕ оставшиеся </footnote-ref>, если Ficbook вставил их криво
+    content = content.replace(/<\/footnote-ref>/g, "");
 
     return { content, notes };
 }
 
 
 
+
+
 async function createFB2(onProgress = () => {}, isCancelled = () => false) {
+
+    // ---------------------------------------------------------
+    // Загружаем страницу фика в скрытый iframe, если мы на странице главы
+    // ---------------------------------------------------------
+    async function loadFicMainPageIfNeeded() {
+        const url = new URL(location.href);
+        const parts = url.pathname.split("/").filter(Boolean);
+
+        if (parts.length === 2 && parts[0] === "readfic") {
+            return document;
+        }
+
+        if (parts.length === 3 && parts[0] === "readfic") {
+            const ficId = parts[1];
+            const ficUrl = `https://ficbook.net/readfic/${ficId}`;
+
+            return new Promise((resolve, reject) => {
+                const iframe = document.createElement("iframe");
+                iframe.style.display = "none";
+                iframe.src = ficUrl;
+
+                iframe.onload = () => {
+                    try {
+                        resolve(iframe.contentDocument);
+                    } catch (e) {
+                        reject(e);
+                    }
+                };
+
+                document.body.appendChild(iframe);
+            });
+        }
+
+        return document;
+    }
+
+    const ficDoc = await loadFicMainPageIfNeeded();
+
+
+    // ---------------------------------------------------------
+    // Чтение метаданных
+    // ---------------------------------------------------------
     const title = getTitle();
     const authors = getAuthors();
     if (!authors.length) {
@@ -609,7 +697,6 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
     const originalWork = getOriginalWork();
 
     const translators = authors.filter(a => a.role === "переводчик");
-
     const mainAuthor =
         authors.find(a => a.role === "автор") ||
         originalAuthor ||
@@ -622,38 +709,25 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
     const { fandom, size, tags, description, notes, otherPublication, pairings } = getExtraData();
     const { direction, rating, status } = getDirectionRatingStatus();
 
-    let fb2Header = buildFb2Header({
-        title,
-        mainAuthor,
-        coauthors,
-        originalAuthor,
-        originalWork,
-        translators,
-        betas,
-        gammas,
-        direction,
-        rating,
-        size,
-        status,
-        tags,
-        description,
-        notes,
-        otherPublication,
-        fandom,
-        pairings
-    });
 
-    let fb2Chapters = "";
-    let tocEntries = [];
-    let chapterIndex = 1;
+    // ---------------------------------------------------------
+    // Ищем серию
+    // ---------------------------------------------------------
+    let series = null;
 
-    // 🔥 Глобальный счётчик сносок
-    let globalFootnoteIndex = { value: 1 };
+    const seriesLink = ficDoc.querySelector(".mb-10 a[href^='/series/']");
+    if (seriesLink) {
+        series = {
+            name: seriesLink.innerText.trim(),
+            url: "https://ficbook.net" + seriesLink.getAttribute("href")
+        };
+    }
 
-    // 🔥 Все сноски всех глав
-    let allNotes = [];
 
-    let rawChapters = Array.from(document.querySelectorAll(".list-of-fanfic-parts .part-link"))
+    // ---------------------------------------------------------
+    // Сбор списка глав
+    // ---------------------------------------------------------
+    let rawChapters = Array.from(ficDoc.querySelectorAll(".list-of-fanfic-parts .part-link"))
         .filter(ch => {
             if (!ch.href) return false;
             if (ch.href.includes("/all-parts")) return false;
@@ -676,23 +750,59 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
     }
 
     const total = chapters.length;
+
+
+    // ---------------------------------------------------------
+    // Подготовка FB2
+    // ---------------------------------------------------------
+    let fb2Header = buildFb2Header({
+        title,
+        mainAuthor,
+        coauthors,
+        originalAuthor,
+        originalWork,
+        translators,
+        betas,
+        gammas,
+        direction,
+        rating,
+        size,
+        status,
+        tags,
+        description: cleanHtmlEntitiesForFb2(description),
+        notes: cleanHtmlEntitiesForFb2(notes),
+        otherPublication,
+        fandom,
+        pairings,
+        series
+    });
+
+    let fb2Chapters = "";
+    let tocEntries = [];
+    let chapterIndex = 1;
+
+    let globalFootnoteIndex = { value: 1 };
+    let allNotes = [];
+
     let failedChapters = [];
 
-    // ---------------------------
-    //   ПЕРВЫЙ ПРОХОД
-    // ---------------------------
+
+    // ---------------------------------------------------------
+    // ПЕРВЫЙ ПРОХОД
+    // ---------------------------------------------------------
     for (let chapter of chapters) {
 
         if (isCancelled()) throw new Error("cancelled");
 
         onProgress(chapterIndex, total);
 
-        await delay(800 + Math.random() * 700);
+        await delay(200 + Math.random() * 200);
 
         try {
             let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
 
-            // 🔥 FB2-сноски со сквозной нумерацией
+            xhtml = cleanHtmlEntitiesForFb2(xhtml);
+
             const { content, notes } = renderFb2Footnotes(xhtml, footnotes, globalFootnoteIndex);
             allNotes.push(...notes);
 
@@ -715,19 +825,22 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
         chapterIndex++;
     }
 
-    // ---------------------------
-    //   ВТОРОЙ ПРОХОД
-    // ---------------------------
+
+    // ---------------------------------------------------------
+    // ВТОРОЙ ПРОХОД
+    // ---------------------------------------------------------
     if (failedChapters.length > 0) {
         console.warn("Повторная загрузка неудачных глав:", failedChapters.length);
 
         for (let item of failedChapters) {
             const { chapter, index } = item;
 
-            await delay(1500 + Math.random() * 1000);
+            await delay(500 + Math.random() * 500);
 
             try {
                 let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
+
+                xhtml = cleanHtmlEntitiesForFb2(xhtml);
 
                 const { content, notes } = renderFb2Footnotes(xhtml, footnotes, globalFootnoteIndex);
                 allNotes.push(...notes);
@@ -754,6 +867,7 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
         failedChapters = failedChapters.filter(ch => !ch.success);
     }
 
+
     if (failedChapters.length > 0) {
         alert(
             "Некоторые главы не удалось загрузить:\n" +
@@ -761,15 +875,13 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
         );
     }
 
-    // ---------------------------
-    //   Сборка FB2
-    // ---------------------------
-    let fb2Toc = buildFb2Toc(tocEntries);
 
-    // Основное тело
+    // ---------------------------------------------------------
+    // Сборка FB2
+    // ---------------------------------------------------------
+    let fb2Toc = buildFb2Toc(tocEntries);
     let fb2Body = buildFb2Body(fb2Chapters);
 
-    // 🔥 Добавляем <body name="notes"> со сквозной нумерацией
     let fb2NotesBody = "";
 
     if (allNotes.length) {
@@ -787,7 +899,6 @@ ${allNotes
 `;
     }
 
-    // Итоговый FB2
     const fullFb2 = fb2Header + fb2Toc + fb2Body + fb2NotesBody + "</FictionBook>";
 
     const safeAuthorName = mainAuthor?.name || "UnknownAuthor";
@@ -875,7 +986,8 @@ function buildTitlePage({
                                    notes,
                                    otherPublication,
                                    fandom,
-                                   pairings
+                                   pairings,
+                                   series
                                }) {
     return `
 <?xml version="1.0" encoding="utf-8"?>
@@ -898,29 +1010,34 @@ function buildTitlePage({
 
             ${translators?.length
         ? `<p><strong>Переводчик:</strong> ${
-            translators.map(a => `${a.name} (${a.url})`).join(", ")
+            translators.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
         }</p>`
         : ""
     }
 
             ${betas?.length
         ? `<p><strong>Бета:</strong> ${
-            betas.map(a => `${a.name} (${a.url})`).join(", ")
+            betas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
         }</p>`
         : ""
     }
 
             ${gammas?.length
         ? `<p><strong>Гамма:</strong> ${
-            gammas.map(a => `${a.name} (${a.url})`).join(", ")
+            gammas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
         }</p>`
         : ""
     }
 
             ${coauthors?.length
         ? `<p><strong>Соавторы:</strong> ${
-            coauthors.map(a => `${a.name} (${a.url})`).join(", ")
+            coauthors.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
         }</p>`
+        : ""
+    }
+
+            ${series
+        ? `<p><strong>Серия:</strong> ${escapeXml(series.name)} (${escapeXml(series.url)})</p>`
         : ""
     }
 
@@ -1097,16 +1214,34 @@ function buildNcx(title, chapters) {
 
 
 
-// Преобразование универсальных сносок в EPUB-сноски
+// Очистка HTML‑сущностей
+function cleanHtmlEntities(text) {
+    if (!text) return text;
+
+    return text
+        .replace(/&nbsp;/g, " ")
+        .replace(/&mdash;/g, "—")
+        .replace(/&ndash;/g, "–")
+        .replace(/&hellip;/g, "…")
+        .replace(/&laquo;/g, "«")
+        .replace(/&raquo;/g, "»")
+        .replace(/&copy;/g, "©")
+        .replace(/&reg;/g, "®")
+        .replace(/&bull;/g, "•")
+        .replace(/&middot;/g, "·")
+        .replace(/&([a-zA-Z0-9]+);/g, "$1");
+}
+
+
+// EPUB‑сноски
 function renderEpubFootnotes(xhtml, footnotes) {
     if (!footnotes || !footnotes.length) return xhtml;
 
     let content = xhtml;
 
     footnotes.forEach(n => {
-        // Матчим весь элемент <footnote-ref ...>...</footnote-ref> ИЛИ самозакрывающий
         const re = new RegExp(
-            `<footnote-ref[^>]*id=["']${n.id}["'][^>]*>(?:[\\s\\S]*?)<\\/footnote-ref>|<footnote-ref[^>]*id=["']${n.id}["'][^>]*\\/?>`,
+            `<footnote-ref[^>]*id=["']${n.id}["'][^>]*>([\\s\\S]*?)<\\/footnote-ref>|<footnote-ref[^>]*id=["']${n.id}["'][^>]*\\/?>`,
             "g"
         );
 
@@ -1120,7 +1255,7 @@ function renderEpubFootnotes(xhtml, footnotes) {
         .map(
             n => `
         <aside id="${n.id}_text" epub:type="footnote" class="footnote">
-            <p><sup>${n.number}</sup> ${n.html}</p>
+            <p><sup>${n.number}</sup> ${cleanHtmlEntities(n.html)}</p>
         </aside>`
         )
         .join("");
@@ -1136,9 +1271,49 @@ function renderEpubFootnotes(xhtml, footnotes) {
 
 
 
-
 async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
+
+    // ---------------------------------------------------------
+    // Загружаем страницу фика в iframe, если мы на странице главы
+    // ---------------------------------------------------------
+    async function loadFicMainPageIfNeeded() {
+        const url = new URL(location.href);
+        const parts = url.pathname.split("/").filter(Boolean);
+
+        if (parts.length === 2 && parts[0] === "readfic") {
+            return document;
+        }
+
+        if (parts.length === 3 && parts[0] === "readfic") {
+            const ficId = parts[1];
+            const ficUrl = `https://ficbook.net/readfic/${ficId}`;
+
+            return new Promise((resolve, reject) => {
+                const iframe = document.createElement("iframe");
+                iframe.style.display = "none";
+                iframe.src = ficUrl;
+
+                iframe.onload = () => {
+                    try {
+                        resolve(iframe.contentDocument);
+                    } catch (e) {
+                        reject(e);
+                    }
+                };
+
+                document.body.appendChild(iframe);
+            });
+        }
+
+        return document;
+    }
+
+    const ficDoc = await loadFicMainPageIfNeeded();
+
+
+    // ---------------------------------------------------------
     // JSZip loader
+    // ---------------------------------------------------------
     if (!window.JSZip) {
         await new Promise((resolve, reject) => {
             const s = document.createElement("script");
@@ -1171,8 +1346,25 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
     const { fandom, size, tags, description, notes, otherPublication, pairings } = getExtraData();
     const { direction, rating, status } = getDirectionRatingStatus();
 
-    // ---------- СБОР СПИСКА ГЛАВ ----------
-    let rawChapters = Array.from(document.querySelectorAll(".list-of-fanfic-parts .part-link"))
+
+    // ---------------------------------------------------------
+    // Ищем серию
+    // ---------------------------------------------------------
+    let series = null;
+
+    const seriesLink = ficDoc.querySelector(".mb-10 a[href^='/series/']");
+    if (seriesLink) {
+        series = {
+            name: seriesLink.innerText.trim(),
+            url: "https://ficbook.net" + seriesLink.getAttribute("href")
+        };
+    }
+
+
+    // ---------------------------------------------------------
+    // Сбор списка глав
+    // ---------------------------------------------------------
+    let rawChapters = Array.from(ficDoc.querySelectorAll(".list-of-fanfic-parts .part-link"))
         .filter(ch => {
             if (!ch.href) return false;
             if (ch.href.includes("/all-parts")) return false;
@@ -1200,19 +1392,23 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
 
     let failedChapters = [];
 
-    // ---------- ПЕРВЫЙ ПРОХОД ----------
+
+    // ---------------------------------------------------------
+    // ПЕРВЫЙ ПРОХОД
+    // ---------------------------------------------------------
     for (let chapter of chaptersList) {
 
         if (isCancelled()) throw new Error("cancelled");
 
         onProgress(index, total);
 
-        await new Promise(r => setTimeout(r, 800 + Math.random() * 700));
+        await new Promise(r => setTimeout(r, 200 + Math.random() * 200));
 
         try {
             let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
 
-            // 🔥 ВСТАВЛЯЕМ EPUB-СНОСКИ
+            xhtml = cleanHtmlEntities(xhtml);
+
             let content = renderEpubFootnotes(xhtml, footnotes);
 
             chapters.push({
@@ -1230,19 +1426,23 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
         index++;
     }
 
-    // ---------- ВТОРОЙ ПРОХОД ----------
+
+    // ---------------------------------------------------------
+    // ВТОРОЙ ПРОХОД
+    // ---------------------------------------------------------
     if (failedChapters.length > 0) {
         console.warn("Повторная загрузка неудачных глав:", failedChapters.length);
 
         for (let item of failedChapters) {
             const { chapter, index } = item;
 
-            await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000));
+            await new Promise(r => setTimeout(r, 500 + Math.random() * 500));
 
             try {
                 let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
 
-                // 🔥 ВСТАВЛЯЕМ EPUB-СНОСКИ
+                xhtml = cleanHtmlEntities(xhtml);
+
                 let content = renderEpubFootnotes(xhtml, footnotes);
 
                 chapters[index - 1] = {
@@ -1263,6 +1463,7 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
         failedChapters = failedChapters.filter(ch => !ch.success);
     }
 
+
     if (failedChapters.length > 0) {
         alert(
             "Некоторые главы не удалось загрузить:\n" +
@@ -1270,7 +1471,10 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
         );
     }
 
-    // ---------- СБОР EPUB ----------
+
+    // ---------------------------------------------------------
+    // СБОР EPUB
+    // ---------------------------------------------------------
     const zip = new JSZip();
 
     zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
@@ -1298,11 +1502,12 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
         size,
         status,
         tags,
-        description,
-        notes,
+        description: cleanHtmlEntities(description),
+        notes: cleanHtmlEntities(notes),
         otherPublication,
         fandom,
-        pairings
+        pairings,
+        series
     }));
 
     chapters.forEach(ch => {
@@ -1314,9 +1519,10 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
     zip.file("OEBPS/content.opf", buildOpf({
         title,
         mainAuthor,
-        description,
+        description: cleanHtmlEntities(description),
         chapters,
-        translators
+        translators,
+        series
     }));
 
     zip.file("OEBPS/toc.ncx", buildNcx(title, chapters));
