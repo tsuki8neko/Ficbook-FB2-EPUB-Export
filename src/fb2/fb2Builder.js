@@ -11,7 +11,27 @@ import { buildFb2Body } from "./fb2Body.js";
 import { getOriginalAuthor, getOriginalWork } from "../core/getMeta.js";
 
 
-// 🔥 FB2: преобразование <footnote-ref/> в FB2-сноски со сквозной нумерацией
+// Очистка HTML‑сущностей, которые FB2 не поддерживает
+function cleanHtmlEntitiesForFb2(text) {
+    if (!text) return text;
+
+    return text
+        .replace(/&nbsp;/g, " ")
+        .replace(/&mdash;/g, "—")
+        .replace(/&ndash;/g, "–")
+        .replace(/&hellip;/g, "…")
+        .replace(/&laquo;/g, "«")
+        .replace(/&raquo;/g, "»")
+        .replace(/&copy;/g, "©")
+        .replace(/&reg;/g, "®")
+        .replace(/&bull;/g, "•")
+        .replace(/&middot;/g, "·")
+        // удаляем любые неизвестные сущности
+        .replace(/&([a-zA-Z0-9]+);/g, "$1");
+}
+
+
+// FB2: преобразование <footnote-ref/> в FB2-сноски со сквозной нумерацией
 function renderFb2Footnotes(xhtml, footnotes, globalIndexRef) {
     if (!footnotes || !footnotes.length) {
         return { content: xhtml, notes: [] };
@@ -23,31 +43,83 @@ function renderFb2Footnotes(xhtml, footnotes, globalIndexRef) {
     footnotes.forEach(n => {
         const globalNumber = globalIndexRef.value++;
 
-        // заменяем ссылку в тексте
-        const re = new RegExp(
+        // 1) Самозакрывающийся <footnote-ref .../>
+        const reSelfClosing = new RegExp(
             `<footnote-ref[^>]*id=["']${n.id}["'][^>]*\\/?>`,
             "g"
         );
 
-        content = content.replace(
-            re,
-            `<a l:href="#note_${n.id}" type="note">[${globalNumber}]</a>`
+        // 2) Полный <footnote-ref ...>...</footnote-ref>
+        const reFull = new RegExp(
+            `<footnote-ref[^>]*id=["']${n.id}["'][^>]*>[\\s\\S]*?<\\/footnote-ref>`,
+            "g"
         );
 
-        // сохраняем глобальную сноску
+        // Заменяем оба варианта
+        content = content
+            .replace(reSelfClosing, `<a xlink:href="#note_${n.id}" type="note">[${globalNumber}]</a>`)
+            .replace(reFull, `<a xlink:href="#note_${n.id}" type="note">[${globalNumber}]</a>`);
+
         notes.push({
             id: n.id,
             number: globalNumber,
-            html: n.html
+            html: cleanHtmlEntitiesForFb2(n.html)
         });
     });
+
+    // Удаляем ВСЕ оставшиеся </footnote-ref>, если Ficbook вставил их криво
+    content = content.replace(/<\/footnote-ref>/g, "");
 
     return { content, notes };
 }
 
 
 
+
+
 export async function createFB2(onProgress = () => {}, isCancelled = () => false) {
+
+    // ---------------------------------------------------------
+    // Загружаем страницу фика в скрытый iframe, если мы на странице главы
+    // ---------------------------------------------------------
+    async function loadFicMainPageIfNeeded() {
+        const url = new URL(location.href);
+        const parts = url.pathname.split("/").filter(Boolean);
+
+        if (parts.length === 2 && parts[0] === "readfic") {
+            return document;
+        }
+
+        if (parts.length === 3 && parts[0] === "readfic") {
+            const ficId = parts[1];
+            const ficUrl = `https://ficbook.net/readfic/${ficId}`;
+
+            return new Promise((resolve, reject) => {
+                const iframe = document.createElement("iframe");
+                iframe.style.display = "none";
+                iframe.src = ficUrl;
+
+                iframe.onload = () => {
+                    try {
+                        resolve(iframe.contentDocument);
+                    } catch (e) {
+                        reject(e);
+                    }
+                };
+
+                document.body.appendChild(iframe);
+            });
+        }
+
+        return document;
+    }
+
+    const ficDoc = await loadFicMainPageIfNeeded();
+
+
+    // ---------------------------------------------------------
+    // Чтение метаданных
+    // ---------------------------------------------------------
     const title = getTitle();
     const authors = getAuthors();
     if (!authors.length) {
@@ -59,7 +131,6 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
     const originalWork = getOriginalWork();
 
     const translators = authors.filter(a => a.role === "переводчик");
-
     const mainAuthor =
         authors.find(a => a.role === "автор") ||
         originalAuthor ||
@@ -72,38 +143,25 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
     const { fandom, size, tags, description, notes, otherPublication, pairings } = getExtraData();
     const { direction, rating, status } = getDirectionRatingStatus();
 
-    let fb2Header = buildFb2Header({
-        title,
-        mainAuthor,
-        coauthors,
-        originalAuthor,
-        originalWork,
-        translators,
-        betas,
-        gammas,
-        direction,
-        rating,
-        size,
-        status,
-        tags,
-        description,
-        notes,
-        otherPublication,
-        fandom,
-        pairings
-    });
 
-    let fb2Chapters = "";
-    let tocEntries = [];
-    let chapterIndex = 1;
+    // ---------------------------------------------------------
+    // Ищем серию
+    // ---------------------------------------------------------
+    let series = null;
 
-    // 🔥 Глобальный счётчик сносок
-    let globalFootnoteIndex = { value: 1 };
+    const seriesLink = ficDoc.querySelector(".mb-10 a[href^='/series/']");
+    if (seriesLink) {
+        series = {
+            name: seriesLink.innerText.trim(),
+            url: "https://ficbook.net" + seriesLink.getAttribute("href")
+        };
+    }
 
-    // 🔥 Все сноски всех глав
-    let allNotes = [];
 
-    let rawChapters = Array.from(document.querySelectorAll(".list-of-fanfic-parts .part-link"))
+    // ---------------------------------------------------------
+    // Сбор списка глав
+    // ---------------------------------------------------------
+    let rawChapters = Array.from(ficDoc.querySelectorAll(".list-of-fanfic-parts .part-link"))
         .filter(ch => {
             if (!ch.href) return false;
             if (ch.href.includes("/all-parts")) return false;
@@ -126,23 +184,59 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
     }
 
     const total = chapters.length;
+
+
+    // ---------------------------------------------------------
+    // Подготовка FB2
+    // ---------------------------------------------------------
+    let fb2Header = buildFb2Header({
+        title,
+        mainAuthor,
+        coauthors,
+        originalAuthor,
+        originalWork,
+        translators,
+        betas,
+        gammas,
+        direction,
+        rating,
+        size,
+        status,
+        tags,
+        description: cleanHtmlEntitiesForFb2(description),
+        notes: cleanHtmlEntitiesForFb2(notes),
+        otherPublication,
+        fandom,
+        pairings,
+        series
+    });
+
+    let fb2Chapters = "";
+    let tocEntries = [];
+    let chapterIndex = 1;
+
+    let globalFootnoteIndex = { value: 1 };
+    let allNotes = [];
+
     let failedChapters = [];
 
-    // ---------------------------
-    //   ПЕРВЫЙ ПРОХОД
-    // ---------------------------
+
+    // ---------------------------------------------------------
+    // ПЕРВЫЙ ПРОХОД
+    // ---------------------------------------------------------
     for (let chapter of chapters) {
 
         if (isCancelled()) throw new Error("cancelled");
 
         onProgress(chapterIndex, total);
 
-        await delay(800 + Math.random() * 700);
+        await delay(200 + Math.random() * 200);
 
         try {
             let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
 
-            // 🔥 FB2-сноски со сквозной нумерацией
+            xhtml = cleanHtmlEntitiesForFb2(xhtml);
+
             const { content, notes } = renderFb2Footnotes(xhtml, footnotes, globalFootnoteIndex);
             allNotes.push(...notes);
 
@@ -165,19 +259,22 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
         chapterIndex++;
     }
 
-    // ---------------------------
-    //   ВТОРОЙ ПРОХОД
-    // ---------------------------
+
+    // ---------------------------------------------------------
+    // ВТОРОЙ ПРОХОД
+    // ---------------------------------------------------------
     if (failedChapters.length > 0) {
         console.warn("Повторная загрузка неудачных глав:", failedChapters.length);
 
         for (let item of failedChapters) {
             const { chapter, index } = item;
 
-            await delay(1500 + Math.random() * 1000);
+            await delay(500 + Math.random() * 500);
 
             try {
                 let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
+
+                xhtml = cleanHtmlEntitiesForFb2(xhtml);
 
                 const { content, notes } = renderFb2Footnotes(xhtml, footnotes, globalFootnoteIndex);
                 allNotes.push(...notes);
@@ -204,6 +301,7 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
         failedChapters = failedChapters.filter(ch => !ch.success);
     }
 
+
     if (failedChapters.length > 0) {
         alert(
             "Некоторые главы не удалось загрузить:\n" +
@@ -211,15 +309,13 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
         );
     }
 
-    // ---------------------------
-    //   Сборка FB2
-    // ---------------------------
-    let fb2Toc = buildFb2Toc(tocEntries);
 
-    // Основное тело
+    // ---------------------------------------------------------
+    // Сборка FB2
+    // ---------------------------------------------------------
+    let fb2Toc = buildFb2Toc(tocEntries);
     let fb2Body = buildFb2Body(fb2Chapters);
 
-    // 🔥 Добавляем <body name="notes"> со сквозной нумерацией
     let fb2NotesBody = "";
 
     if (allNotes.length) {
@@ -237,7 +333,6 @@ ${allNotes
 `;
     }
 
-    // Итоговый FB2
     const fullFb2 = fb2Header + fb2Toc + fb2Body + fb2NotesBody + "</FictionBook>";
 
     const safeAuthorName = mainAuthor?.name || "UnknownAuthor";

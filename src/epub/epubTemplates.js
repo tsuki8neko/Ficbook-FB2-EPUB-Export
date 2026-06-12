@@ -17,7 +17,8 @@ export function buildTitlePage({
                                    notes,
                                    otherPublication,
                                    fandom,
-                                   pairings
+                                   pairings,
+                                   series
                                }) {
     return `
 <?xml version="1.0" encoding="utf-8"?>
@@ -40,29 +41,34 @@ export function buildTitlePage({
 
             ${translators?.length
         ? `<p><strong>Переводчик:</strong> ${
-            translators.map(a => `${a.name} (${a.url})`).join(", ")
+            translators.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
         }</p>`
         : ""
     }
 
             ${betas?.length
         ? `<p><strong>Бета:</strong> ${
-            betas.map(a => `${a.name} (${a.url})`).join(", ")
+            betas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
         }</p>`
         : ""
     }
 
             ${gammas?.length
         ? `<p><strong>Гамма:</strong> ${
-            gammas.map(a => `${a.name} (${a.url})`).join(", ")
+            gammas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
         }</p>`
         : ""
     }
 
             ${coauthors?.length
         ? `<p><strong>Соавторы:</strong> ${
-            coauthors.map(a => `${a.name} (${a.url})`).join(", ")
+            coauthors.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
         }</p>`
+        : ""
+    }
+
+            ${series
+        ? `<p><strong>Серия:</strong> ${escapeXml(series.name)} (${escapeXml(series.url)})</p>`
         : ""
     }
 

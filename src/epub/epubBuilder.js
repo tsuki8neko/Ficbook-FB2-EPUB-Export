@@ -11,16 +11,34 @@ import { buildNcx } from "./epubNcx.js";
 import { getOriginalAuthor } from "../core/getMeta.js";
 
 
-// Преобразование универсальных сносок в EPUB-сноски
+// Очистка HTML‑сущностей
+function cleanHtmlEntities(text) {
+    if (!text) return text;
+
+    return text
+        .replace(/&nbsp;/g, " ")
+        .replace(/&mdash;/g, "—")
+        .replace(/&ndash;/g, "–")
+        .replace(/&hellip;/g, "…")
+        .replace(/&laquo;/g, "«")
+        .replace(/&raquo;/g, "»")
+        .replace(/&copy;/g, "©")
+        .replace(/&reg;/g, "®")
+        .replace(/&bull;/g, "•")
+        .replace(/&middot;/g, "·")
+        .replace(/&([a-zA-Z0-9]+);/g, "$1");
+}
+
+
+// EPUB‑сноски
 function renderEpubFootnotes(xhtml, footnotes) {
     if (!footnotes || !footnotes.length) return xhtml;
 
     let content = xhtml;
 
     footnotes.forEach(n => {
-        // Матчим весь элемент <footnote-ref ...>...</footnote-ref> ИЛИ самозакрывающий
         const re = new RegExp(
-            `<footnote-ref[^>]*id=["']${n.id}["'][^>]*>(?:[\\s\\S]*?)<\\/footnote-ref>|<footnote-ref[^>]*id=["']${n.id}["'][^>]*\\/?>`,
+            `<footnote-ref[^>]*id=["']${n.id}["'][^>]*>([\\s\\S]*?)<\\/footnote-ref>|<footnote-ref[^>]*id=["']${n.id}["'][^>]*\\/?>`,
             "g"
         );
 
@@ -34,7 +52,7 @@ function renderEpubFootnotes(xhtml, footnotes) {
         .map(
             n => `
         <aside id="${n.id}_text" epub:type="footnote" class="footnote">
-            <p><sup>${n.number}</sup> ${n.html}</p>
+            <p><sup>${n.number}</sup> ${cleanHtmlEntities(n.html)}</p>
         </aside>`
         )
         .join("");
@@ -50,9 +68,49 @@ function renderEpubFootnotes(xhtml, footnotes) {
 
 
 
-
 export async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
+
+    // ---------------------------------------------------------
+    // Загружаем страницу фика в iframe, если мы на странице главы
+    // ---------------------------------------------------------
+    async function loadFicMainPageIfNeeded() {
+        const url = new URL(location.href);
+        const parts = url.pathname.split("/").filter(Boolean);
+
+        if (parts.length === 2 && parts[0] === "readfic") {
+            return document;
+        }
+
+        if (parts.length === 3 && parts[0] === "readfic") {
+            const ficId = parts[1];
+            const ficUrl = `https://ficbook.net/readfic/${ficId}`;
+
+            return new Promise((resolve, reject) => {
+                const iframe = document.createElement("iframe");
+                iframe.style.display = "none";
+                iframe.src = ficUrl;
+
+                iframe.onload = () => {
+                    try {
+                        resolve(iframe.contentDocument);
+                    } catch (e) {
+                        reject(e);
+                    }
+                };
+
+                document.body.appendChild(iframe);
+            });
+        }
+
+        return document;
+    }
+
+    const ficDoc = await loadFicMainPageIfNeeded();
+
+
+    // ---------------------------------------------------------
     // JSZip loader
+    // ---------------------------------------------------------
     if (!window.JSZip) {
         await new Promise((resolve, reject) => {
             const s = document.createElement("script");
@@ -85,8 +143,25 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
     const { fandom, size, tags, description, notes, otherPublication, pairings } = getExtraData();
     const { direction, rating, status } = getDirectionRatingStatus();
 
-    // ---------- СБОР СПИСКА ГЛАВ ----------
-    let rawChapters = Array.from(document.querySelectorAll(".list-of-fanfic-parts .part-link"))
+
+    // ---------------------------------------------------------
+    // Ищем серию
+    // ---------------------------------------------------------
+    let series = null;
+
+    const seriesLink = ficDoc.querySelector(".mb-10 a[href^='/series/']");
+    if (seriesLink) {
+        series = {
+            name: seriesLink.innerText.trim(),
+            url: "https://ficbook.net" + seriesLink.getAttribute("href")
+        };
+    }
+
+
+    // ---------------------------------------------------------
+    // Сбор списка глав
+    // ---------------------------------------------------------
+    let rawChapters = Array.from(ficDoc.querySelectorAll(".list-of-fanfic-parts .part-link"))
         .filter(ch => {
             if (!ch.href) return false;
             if (ch.href.includes("/all-parts")) return false;
@@ -114,19 +189,23 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
 
     let failedChapters = [];
 
-    // ---------- ПЕРВЫЙ ПРОХОД ----------
+
+    // ---------------------------------------------------------
+    // ПЕРВЫЙ ПРОХОД
+    // ---------------------------------------------------------
     for (let chapter of chaptersList) {
 
         if (isCancelled()) throw new Error("cancelled");
 
         onProgress(index, total);
 
-        await new Promise(r => setTimeout(r, 800 + Math.random() * 700));
+        await new Promise(r => setTimeout(r, 200 + Math.random() * 200));
 
         try {
             let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
 
-            // 🔥 ВСТАВЛЯЕМ EPUB-СНОСКИ
+            xhtml = cleanHtmlEntities(xhtml);
+
             let content = renderEpubFootnotes(xhtml, footnotes);
 
             chapters.push({
@@ -144,19 +223,23 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
         index++;
     }
 
-    // ---------- ВТОРОЙ ПРОХОД ----------
+
+    // ---------------------------------------------------------
+    // ВТОРОЙ ПРОХОД
+    // ---------------------------------------------------------
     if (failedChapters.length > 0) {
         console.warn("Повторная загрузка неудачных глав:", failedChapters.length);
 
         for (let item of failedChapters) {
             const { chapter, index } = item;
 
-            await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000));
+            await new Promise(r => setTimeout(r, 500 + Math.random() * 500));
 
             try {
                 let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
 
-                // 🔥 ВСТАВЛЯЕМ EPUB-СНОСКИ
+                xhtml = cleanHtmlEntities(xhtml);
+
                 let content = renderEpubFootnotes(xhtml, footnotes);
 
                 chapters[index - 1] = {
@@ -177,6 +260,7 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
         failedChapters = failedChapters.filter(ch => !ch.success);
     }
 
+
     if (failedChapters.length > 0) {
         alert(
             "Некоторые главы не удалось загрузить:\n" +
@@ -184,7 +268,10 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
         );
     }
 
-    // ---------- СБОР EPUB ----------
+
+    // ---------------------------------------------------------
+    // СБОР EPUB
+    // ---------------------------------------------------------
     const zip = new JSZip();
 
     zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
@@ -212,11 +299,12 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
         size,
         status,
         tags,
-        description,
-        notes,
+        description: cleanHtmlEntities(description),
+        notes: cleanHtmlEntities(notes),
         otherPublication,
         fandom,
-        pairings
+        pairings,
+        series
     }));
 
     chapters.forEach(ch => {
@@ -228,9 +316,10 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
     zip.file("OEBPS/content.opf", buildOpf({
         title,
         mainAuthor,
-        description,
+        description: cleanHtmlEntities(description),
         chapters,
-        translators
+        translators,
+        series
     }));
 
     zip.file("OEBPS/toc.ncx", buildNcx(title, chapters));

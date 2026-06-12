@@ -19,14 +19,19 @@ export function buildFb2Header({
                                    notes,
                                    otherPublication,
                                    fandom,
-                                   pairings
+                                   pairings,
+                                   series
                                }) {
     return `<?xml version="1.0" encoding="utf-8"?>
-<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink"
+<FictionBook 
+    xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" 
+    xmlns:xlink="http://www.w3.org/1999/xlink">
+
     <stylesheet type="text/css">
         .body{font-family : Verdana, Geneva, Arial, Helvetica, sans-serif;}
         .p{margin:0.5em 0 0 0.3em; padding:0.2em; text-align:justify;}
     </stylesheet>
+
     <description>
         <title-info>
 
@@ -39,71 +44,82 @@ export function buildFb2Header({
             <book-title>${escapeXml(title)}</book-title>
 
             <annotation>
+
                 <p><strong>Ссылка на работу:</strong> ${escapeXml(location.href)}</p>
                 <p><strong>Направленность:</strong> ${escapeXml(direction)}</p>
-                
 
                 ${mainAuthor
-                    ? `<p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)} (${escapeXml(mainAuthor.url)})</p>`
-                    : `<p><strong>Автор:</strong> Оригинальный автор неизвестен</p>`
-                }
+        ? `<p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)} (${escapeXml(mainAuthor.url)})</p>`
+        : `<p><strong>Автор:</strong> Оригинальный автор неизвестен</p>`
+    }
 
-
-        
                 ${originalAuthor && mainAuthor?.name !== originalAuthor.name
-                    ? `<p><strong>Автор оригинала:</strong> ${escapeXml(originalAuthor.name)} (${escapeXml(originalAuthor.url)})</p>`
-                    : ""
-                }
+        ? `<p><strong>Автор оригинала:</strong> ${escapeXml(originalAuthor.name)} (${escapeXml(originalAuthor.url)})</p>`
+        : ""
+    }
 
-        
                 ${originalWork
-                    ? `<p><strong>Оригинал:</strong> ${escapeXml(originalWork.url)}</p>`
-                    : ""
-                }
-        
+        ? `<p><strong>Оригинал:</strong> ${escapeXml(originalWork.url)}</p>`
+        : ""
+    }
+
                 ${translators?.length
-                    ? `<p><strong>Переводчик:</strong> ${
-                    translators.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-                    }</p>`
-                    : ""
-                }
-        
+        ? `<p><strong>Переводчик:</strong> ${
+            translators.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
+        }</p>`
+        : ""
+    }
+
                 ${coauthors?.length
-                    ? `<p><strong>Соавторы:</strong> ${
-                    coauthors.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-                    }</p>`
-                    : ""
-                }
-        
+        ? `<p><strong>Соавторы:</strong> ${
+            coauthors.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
+        }</p>`
+        : ""
+    }
+
                 ${betas?.length
-                    ? `<p><strong>Бета:</strong> ${
-                    betas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-                    }</p>`
-                    : ""
-                }
-        
+        ? `<p><strong>Бета:</strong> ${
+            betas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
+        }</p>`
+        : ""
+    }
+
                 ${gammas?.length
-                    ? `<p><strong>Гамма:</strong> ${
-                    gammas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-                    }</p>`
-                    : ""
-                }
-                  
-                
+        ? `<p><strong>Гамма:</strong> ${
+            gammas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
+        }</p>`
+        : ""
+    }
+
+                ${series
+        ? `<p><strong>Серия:</strong> ${escapeXml(series.name)} (${escapeXml(series.url)})</p>`
+        : ""
+    }
+
                 <p><strong>Фэндом:</strong> ${escapeXml(fandom || "")}</p>
+
                 ${pairings?.length
-                    ? `<p><strong>Пейринг и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>`
-                    : ""
-                }
+        ? `<p><strong>Пейринг и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>`
+        : ""
+    }
+
                 <p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>
                 <p><strong>Размер:</strong> ${escapeXml(size)} слов</p>
                 <p><strong>Статус:</strong> ${escapeXml(status)}</p>
                 <p><strong>Метки:</strong> ${escapeXml(tags || "")}</p>
+
+                <p></p>
+
                 <p><strong>Описание:</strong></p>
                 ${textToParagraphs(description)}
+
+                <p></p>
+
                 <p><strong>Примечания:</strong></p>
                 ${textToParagraphs(notes)}
+
                 <p><strong>Публикация на других ресурсах:</strong> ${escapeXml(otherPublication || "")}</p>
+
             </annotation>
 
             <date value="${new Date().toISOString().split("T")[0]}">${new Date().toLocaleDateString()}</date>
