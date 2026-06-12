@@ -2,8 +2,8 @@
 // @name        Ficbook FB2 & EPUB Export
 // @name:ru         Скачивание книг с фикбука в формате FB2 & EPUB
 // @namespace   http://tampermonkey.net/
-// @version     1.4.0
-// @build       2026-06-11 03:24
+// @version     1.5.0
+// @build       2026-06-12 13:44
 // @description Download books from Ficbook in FB2 & EPUB without registration or limits
 // @description:ru  Скрипт позволяет скачивать книги с Фикбука в форматах FB2 и EPUB без регистрации и ограничений
 // @author      tsuki8neko
@@ -192,6 +192,184 @@ function getOriginalWork() {
 }
 
 
+;// ./src/utils/delay.js
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+;// ./src/core/getFootnotes.js
+// extractFootnotes.js
+
+function fixHtml(html) {
+    return html
+        .replace(/<br>/g, "<br/>")
+        .replace(/<hr>/g, "<hr/>")
+        .replace(/&nbsp;/g, "&#160;");
+}
+
+function extractFootnotes(doc, contentNode, notesMap = {}) {
+    const anchors = [...contentNode.querySelectorAll("span.footnote[id]")];
+    const notes = [];
+
+    anchors.forEach((anchor, index) => {
+        const id = anchor.id;
+        const text = notesMap[id];
+        if (!text) return;
+
+        const number = index + 1;
+
+        // Универсальный маркер
+        anchor.outerHTML = `<footnote-ref id="${id}" number="${number}"/>`;
+
+        notes.push({
+            id,
+            number,
+            html: fixHtml(text)
+        });
+    });
+
+    return notes;
+}
+
+;// ./src/core/getChapter.js
+
+
+
+async function getChapter(url, attempt = 1) {
+    const MAX_ATTEMPTS = 7;
+
+    await delay(500 + Math.random() * 300);
+
+    let res;
+    try {
+        res = await fetch(url);
+    } catch (e) {
+        if (attempt < MAX_ATTEMPTS) {
+            await delay(1000 * attempt);
+            return getChapter(url, attempt + 1);
+        }
+        throw e;
+    }
+
+    let html = await res.text();
+
+    const looksEmpty =
+        !html ||
+        html.length < 500 ||
+        html.includes("cf-browser-verification") ||
+        html.includes("Cloudflare") ||
+        html.includes("Too Many Requests") ||
+        html.includes("<title>429") ||
+        html.includes("<title>502");
+
+    if (looksEmpty) {
+        if (attempt < MAX_ATTEMPTS) {
+            await delay(1200 * attempt + Math.random() * 500);
+            return getChapter(url, attempt + 1);
+        }
+        throw new Error(`Не удалось загрузить ${url}: пустой HTML`);
+    }
+
+    // --- Парсим HTML ---
+    let doc = new DOMParser().parseFromString(html, "text/html");
+
+    let title =
+        doc.querySelector(".title-area h2, .part-title h3")?.innerText.trim() ||
+        "Глава";
+
+    // Убираем мусор
+    doc.querySelectorAll(".part-date, .part-info").forEach(el => el.remove());
+
+    let contentNode =
+        doc.querySelector("#part_content") ||
+        doc.querySelector("#content.js-part-text, #content.part_text, #content");
+
+    if (contentNode) {
+        contentNode.querySelectorAll(
+            ".js-collapsible, .js-text-settings-collapse-button, .ad, .part-footer, .chapter-time, .text_settings, .tags"
+        ).forEach(el => el.remove());
+
+        contentNode.querySelector("h1, h2, h3")?.remove();
+    }
+
+    let plain = contentNode ? contentNode.innerText.trim() : "";
+
+    if (!plain) {
+        if (attempt < MAX_ATTEMPTS) {
+            await delay(1200 * attempt + Math.random() * 500);
+            return getChapter(url, attempt + 1);
+        }
+        throw new Error(`Не удалось загрузить ${url}: контент пустой`);
+    }
+
+    // --- ВАЖНО: извлекаем textFootnotes из HTML ---
+    const footnotesMatch = html.match(/\s+textFootnotes\s*=\s*({.*?})/);
+    const notesMap = footnotesMatch ? JSON.parse(footnotesMatch[1]) : {};
+
+    // --- Извлечение сносок (меняет contentNode.innerHTML) ---
+    const footnotes = extractFootnotes(doc, contentNode, notesMap);
+
+    // --- Превращаем двойные переносы в <p>, но осторожно ---
+    function paragraphs(html) {
+        return html
+            .replace(/\r/g, "")
+            .split(/\n{2,}/)
+            .map(block => {
+                const trimmed = block.trim();
+
+                if (trimmed.startsWith("<")) return trimmed;
+                if (/<[a-z][\s\S]*>/i.test(trimmed)) return trimmed;
+                if (trimmed.includes("<div") || trimmed.includes("</div")) return trimmed;
+
+                return `<p>${trimmed}</p>`;
+            })
+            .join("\n");
+    }
+
+    let xhtml = paragraphs(contentNode.innerHTML.trim());
+
+    // ---------------------------------------------------------
+    // 🔥 ДОБАВЛЯЕМ РАЗДЕЛИТЕЛИ ДЛЯ ПРИМЕЧАНИЙ
+    // ---------------------------------------------------------
+
+    // Примечания перед текстом
+    // Примечания перед текстом
+    const topNotes = doc.querySelector(".part-comment-top");
+    if (topNotes) {
+        // Разделитель должен быть ПОСЛЕ примечаний
+        xhtml = xhtml.replace(
+            /(<div class="part-comment-top"[\s\S]*?<\/div>)/,
+            `$1\n<p>--------------</p>`
+        );
+    }
+
+    // Примечания после текста
+    const bottomNotes = doc.querySelector(".part-comment-bottom");
+    if (bottomNotes) {
+        // Разделитель должен быть ПЕРЕД примечаниями
+        xhtml = xhtml.replace(
+            /(<div class="part-comment-bottom"[\s\S]*?<\/div>)/,
+            `<p>--------------</p>\n$1`
+        );
+    }
+
+    return {
+        title,
+        plain,
+        xhtml,
+        footnotes
+    };
+}
+
+;// ./src/utils/generateFileName.js
+function sanitizeFilePart(str) {
+    return str.replace(/\s+/g, "_").replace(/[\\/:*?"<>|]+/g, "");
+}
+
+function generateFileBaseName(mainAuthorName, title) {
+    return `${sanitizeFilePart(mainAuthorName)}_-_${sanitizeFilePart(title)}`;
+}
+
 ;// ./src/utils/escapeXml.js
 function escapeXml(str) {
     return str
@@ -211,112 +389,6 @@ function textToParagraphs(text) {
         .filter(line => line.length > 0)
         .map(line => `<p>${escapeXml(line)}</p>`)
         .join("\n");
-}
-
-;// ./src/utils/delay.js
-function delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-;// ./src/core/getChapter.js
-
-
-
-async function getChapter(url, attempt = 1) {
-    const MAX_ATTEMPTS = 7; // Количество попыток повторного скачивания
-
-    // Задержка после успешной загрузки
-    await delay(500 + Math.random() * 300);
-
-    let res;
-    try {
-        res = await fetch(url);
-    } catch (e) {
-        console.warn(`Ошибка сети при загрузке ${url}: ${e}`);
-        if (attempt < MAX_ATTEMPTS) {
-            await delay(1000 * attempt);
-            return getChapter(url, attempt + 1);
-        }
-        throw e;
-    }
-
-    let html = await res.text();
-
-    // --- Универсальная проверка на пустой/битый HTML ---
-    const looksEmpty =
-        !html ||
-        html.length < 500 ||
-        html.includes("cf-browser-verification") ||
-        html.includes("Cloudflare") ||
-        html.includes("Too Many Requests") ||
-        html.includes("<title>429") ||
-        html.includes("<title>502");
-
-    if (looksEmpty) {
-        console.warn(`Пустой HTML — попытка ${attempt}/${MAX_ATTEMPTS}`);
-
-        if (attempt < MAX_ATTEMPTS) {
-            await delay(1200 * attempt + Math.random() * 500);
-            return getChapter(url, attempt + 1);
-        }
-
-        throw new Error(`Не удалось загрузить ${url}: пустой HTML`);
-    }
-
-    let doc = new DOMParser().parseFromString(html, "text/html");
-
-    let title = doc.querySelector(".title-area h2, .part-title h3")?.innerText.trim() || "Глава";
-
-    // Удаляем дату на странице главы
-    doc.querySelectorAll(".part-date").forEach(el => el.remove());
-
-    // Удаляем дату и отзывы на странице содержания
-    doc.querySelectorAll(".part-info").forEach(el => el.remove());
-
-    // Для многочастных фанфиков
-    let contentNode = doc.querySelector("#part_content");
-
-    // Для одноглавных фанфиков (нет оглавления)
-    if (!contentNode) {
-        contentNode = doc.querySelector("#content.js-part-text, #content.part_text, #content");
-    }
-
-    if (contentNode) {
-        contentNode.querySelectorAll(
-            ".js-collapsible, .js-text-settings-collapse-button, .ad, .part-footer, .chapter-time, .text_settings, .tags"
-        ).forEach(el => el.remove());
-
-        contentNode.querySelector("h1, h2, h3")?.remove();
-    }
-
-    let content = contentNode ? contentNode.innerText.trim() : "";
-
-    // --- Проверка: глава пустая ---
-    if (!content) {
-        console.warn(`Контент пустой — попытка ${attempt}/${MAX_ATTEMPTS}`);
-
-        if (attempt < MAX_ATTEMPTS) {
-            await delay(1200 * attempt + Math.random() * 500);
-            return getChapter(url, attempt + 1);
-        }
-
-        throw new Error(`Не удалось загрузить ${url}: контент пустой`);
-    }
-
-    return {
-        title,
-        plain: content,
-        xhtml: textToParagraphs(content)
-    };
-}
-
-;// ./src/utils/generateFileName.js
-function sanitizeFilePart(str) {
-    return str.replace(/\s+/g, "_").replace(/[\\/:*?"<>|]+/g, "");
-}
-
-function generateFileBaseName(mainAuthorName, title) {
-    return `${sanitizeFilePart(mainAuthorName)}_-_${sanitizeFilePart(title)}`;
 }
 
 ;// ./src/fb2/fb2Header.js
@@ -344,7 +416,7 @@ function buildFb2Header({
                                    pairings
                                }) {
     return `<?xml version="1.0" encoding="utf-8"?>
-<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:xlink="http://www.w3.org/1999/xlink">
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink"
     <stylesheet type="text/css">
         .body{font-family : Verdana, Geneva, Arial, Helvetica, sans-serif;}
         .p{margin:0.5em 0 0 0.3em; padding:0.2em; text-align:justify;}
@@ -458,12 +530,20 @@ function buildFb2Toc(tocEntries) {
 }
 
 ;// ./src/fb2/fb2Body.js
+// export function buildFb2Body(fb2Chapters) {
+//     return `
+// <body>
+// ${fb2Chapters}
+// </body>
+// </FictionBook>
+// `;
+// }
+
 function buildFb2Body(fb2Chapters) {
     return `
 <body>
 ${fb2Chapters}
 </body>
-</FictionBook>
 `;
 }
 
@@ -481,6 +561,42 @@ ${fb2Chapters}
 
 
 
+// 🔥 FB2: преобразование <footnote-ref/> в FB2-сноски со сквозной нумерацией
+function renderFb2Footnotes(xhtml, footnotes, globalIndexRef) {
+    if (!footnotes || !footnotes.length) {
+        return { content: xhtml, notes: [] };
+    }
+
+    let content = xhtml;
+    let notes = [];
+
+    footnotes.forEach(n => {
+        const globalNumber = globalIndexRef.value++;
+
+        // заменяем ссылку в тексте
+        const re = new RegExp(
+            `<footnote-ref[^>]*id=["']${n.id}["'][^>]*\\/?>`,
+            "g"
+        );
+
+        content = content.replace(
+            re,
+            `<a l:href="#note_${n.id}" type="note">[${globalNumber}]</a>`
+        );
+
+        // сохраняем глобальную сноску
+        notes.push({
+            id: n.id,
+            number: globalNumber,
+            html: n.html
+        });
+    });
+
+    return { content, notes };
+}
+
+
+
 async function createFB2(onProgress = () => {}, isCancelled = () => false) {
     const title = getTitle();
     const authors = getAuthors();
@@ -488,29 +604,20 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
         alert("Авторы не найдены, возможно, изменился HTML Ficbook.");
         return;
     }
+
     const originalAuthor = getOriginalAuthor();
     const originalWork = getOriginalWork();
-
-    // const mainAuthor =
-    //     authors.find(a => a.role === "автор") ||
-    //     authors.find(a => a.role === "переводчик") ||
-    //     authors[0];
 
     const translators = authors.filter(a => a.role === "переводчик");
 
     const mainAuthor =
         authors.find(a => a.role === "автор") ||
-        originalAuthor ||   // ← вот это ключ
+        originalAuthor ||
         null;
 
-    // Остальные роли
     const betas = authors.filter(a => a.role === "бета");
     const gammas = authors.filter(a => a.role === "гамма");
     const coauthors = authors.filter(a => a.role === "соавтор");
-
-
-    // const mainAuthor = authors[0];
-    // const coauthors = authors.slice(1);
 
     const { fandom, size, tags, description, notes, otherPublication, pairings } = getExtraData();
     const { direction, rating, status } = getDirectionRatingStatus();
@@ -540,6 +647,12 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
     let tocEntries = [];
     let chapterIndex = 1;
 
+    // 🔥 Глобальный счётчик сносок
+    let globalFootnoteIndex = { value: 1 };
+
+    // 🔥 Все сноски всех глав
+    let allNotes = [];
+
     let rawChapters = Array.from(document.querySelectorAll(".list-of-fanfic-parts .part-link"))
         .filter(ch => {
             if (!ch.href) return false;
@@ -549,13 +662,9 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
             return /^\d+$/.test(last);
         });
 
-    // Если список глав пуст — значит глава одна, и она уже открыта
     if (rawChapters.length === 0) {
-        rawChapters = [{
-            href: location.href
-        }];
+        rawChapters = [{ href: location.href }];
     }
-
 
     let chapters = [];
     let seen = new Set();
@@ -567,8 +676,6 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
     }
 
     const total = chapters.length;
-
-    // 🔥 список неудачных глав
     let failedChapters = [];
 
     // ---------------------------
@@ -583,7 +690,11 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
         await delay(800 + Math.random() * 700);
 
         try {
-            let { title: chTitle, xhtml } = await getChapter(chapter.href);
+            let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
+
+            // 🔥 FB2-сноски со сквозной нумерацией
+            const { content, notes } = renderFb2Footnotes(xhtml, footnotes, globalFootnoteIndex);
+            allNotes.push(...notes);
 
             tocEntries.push({
                 id: `ch${chapterIndex}`,
@@ -591,10 +702,10 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
             });
 
             fb2Chapters += `
-            <section id="ch${chapterIndex}">
-                <title><p>•\u2003${chTitle}</p></title>
-                ${xhtml}
-            </section>`;
+<section id="ch${chapterIndex}">
+    <title><p>•\u2003${chTitle}</p></title>
+    ${content}
+</section>`;
 
         } catch (err) {
             console.warn("Не удалось загрузить главу:", chapter.href, err);
@@ -605,7 +716,7 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
     }
 
     // ---------------------------
-    //   ВТОРОЙ ПРОХОД (повторная загрузка)
+    //   ВТОРОЙ ПРОХОД
     // ---------------------------
     if (failedChapters.length > 0) {
         console.warn("Повторная загрузка неудачных глав:", failedChapters.length);
@@ -616,20 +727,21 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
             await delay(1500 + Math.random() * 1000);
 
             try {
-                let { title: chTitle, xhtml } = await getChapter(chapter.href);
+                let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
 
-                // обновляем оглавление
+                const { content, notes } = renderFb2Footnotes(xhtml, footnotes, globalFootnoteIndex);
+                allNotes.push(...notes);
+
                 tocEntries[index - 1] = {
                     id: `ch${index}`,
                     title: `•\u2003${chTitle}`
                 };
 
-                // добавляем текст главы
                 fb2Chapters += `
-                <section id="ch${index}">
-                    <title><p>•\u2003${chTitle}</p></title>
-                    ${xhtml}
-                </section>`;
+<section id="ch${index}">
+    <title><p>•\u2003${chTitle}</p></title>
+    ${content}
+</section>`;
 
                 item.success = true;
 
@@ -639,13 +751,9 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
             }
         }
 
-        // оставшиеся неудачные
         failedChapters = failedChapters.filter(ch => !ch.success);
     }
 
-    // ---------------------------
-    //   Если остались ошибки
-    // ---------------------------
     if (failedChapters.length > 0) {
         alert(
             "Некоторые главы не удалось загрузить:\n" +
@@ -657,32 +765,43 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
     //   Сборка FB2
     // ---------------------------
     let fb2Toc = buildFb2Toc(tocEntries);
+
+    // Основное тело
     let fb2Body = buildFb2Body(fb2Chapters);
 
-    // Основной автор (автор фанфика или автор оригинала)
-    const safeAuthorName = mainAuthor?.name || "UnknownAuthor";
+    // 🔥 Добавляем <body name="notes"> со сквозной нумерацией
+    let fb2NotesBody = "";
 
-    // Переводчик (если есть)
+    if (allNotes.length) {
+        fb2NotesBody = `
+<body name="notes">
+${allNotes
+            .map(n => `
+<section id="note_${n.id}">
+    <title>${n.number}</title>
+    <p>${n.html}</p>
+</section>
+`)
+            .join("\n")}
+</body>
+`;
+    }
+
+    // Итоговый FB2
+    const fullFb2 = fb2Header + fb2Toc + fb2Body + fb2NotesBody + "</FictionBook>";
+
+    const safeAuthorName = mainAuthor?.name || "UnknownAuthor";
     const translatorName = translators[0]?.name || null;
 
-    // Добавляем переводчика в конец названия файла
     let titlePart = title;
-
     if (translatorName) {
         titlePart += `_[${translatorName}]`;
     }
 
-    // Генерация имени файла
     const baseName = generateFileBaseName(safeAuthorName, titlePart);
     const fileName = `${baseName}.fb2`;
 
-
-
-
-    let blob = new Blob(
-        [fb2Header + fb2Toc + fb2Body],
-        { type: "text/xml" }
-    );
+    let blob = new Blob([fullFb2], { type: "text/xml" });
 
     let link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -760,7 +879,9 @@ function buildTitlePage({
                                }) {
     return `
 <?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ru">
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:epub="http://www.idpf.org/2007/ops"
+      xml:lang="ru">
 <head>
     <title>${escapeXml(title)}</title>
     <link rel="stylesheet" type="text/css" href="style.css"/>
@@ -771,62 +892,44 @@ function buildTitlePage({
         <h2>${escapeXml(mainAuthor.name)}</h2>
 
         <div class="meta-block">
-        
             <p><strong>Ссылка на работу:</strong> ${escapeXml(location.href)}</p>
-            
             <p><strong>Направленность:</strong> ${escapeXml(direction)}</p>
-            
-            <p><strong>Автор:</strong> 
-                ${escapeXml(mainAuthor.name)} (${escapeXml(mainAuthor.url)})
-            </p>
-            
+            <p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)} (${escapeXml(mainAuthor.url)})</p>
+
             ${translators?.length
-                    ? `<p><strong>Переводчик:</strong> ${
-                        translators.map(a => `${a.name} (${a.url})`).join(", ")
-                    }</p>`
-                    : ""
-                }
-            
+        ? `<p><strong>Переводчик:</strong> ${
+            translators.map(a => `${a.name} (${a.url})`).join(", ")
+        }</p>`
+        : ""
+    }
+
             ${betas?.length
-                    ? `<p><strong>Бета:</strong> ${
-                        betas.map(a => `${a.name} (${a.url})`).join(", ")
-                    }</p>`
-                    : ""
-                }
-            
+        ? `<p><strong>Бета:</strong> ${
+            betas.map(a => `${a.name} (${a.url})`).join(", ")
+        }</p>`
+        : ""
+    }
+
             ${gammas?.length
-                    ? `<p><strong>Гамма:</strong> ${
-                        gammas.map(a => `${a.name} (${a.url})`).join(", ")
-                    }</p>`
-                    : ""
-                }
-            
+        ? `<p><strong>Гамма:</strong> ${
+            gammas.map(a => `${a.name} (${a.url})`).join(", ")
+        }</p>`
+        : ""
+    }
+
             ${coauthors?.length
-                    ? `<p><strong>Соавторы:</strong> ${
-                        coauthors
-                            .map(a => `${a.name} (${a.url})`)
-                            .join(", ")
-                    }</p>`
-                    : ""
-                }
-            
- <!--          
-            ${coauthors?.length
-                ? `<p><strong>Соавторы:</strong> ${
-                    coauthors
-                    .map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`)
-                    .join(", ")
-                }</p>`
-                : ""
-            }
--->
-            
+        ? `<p><strong>Соавторы:</strong> ${
+            coauthors.map(a => `${a.name} (${a.url})`).join(", ")
+        }</p>`
+        : ""
+    }
+
             <p><strong>Фэндом:</strong> ${escapeXml(fandom)}</p>
-            
+
             ${pairings?.length
-                ? `<p><strong>Пейринги и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>`
-                : ""
-            }
+        ? `<p><strong>Пейринги и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>`
+        : ""
+    }
 
             <p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>
             <p><strong>Размер:</strong> ${escapeXml(size)} слов</p>
@@ -850,7 +953,9 @@ function buildTitlePage({
 function buildChapterPage(ch) {
     return `
 <?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ru">
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:epub="http://www.idpf.org/2007/ops"
+      xml:lang="ru">
 <head>
     <title>${escapeXml(ch.title)}</title>
     <link rel="stylesheet" type="text/css" href="style.css"/>
@@ -870,7 +975,9 @@ function buildTocXhtml(chapters) {
 
     return `
 <?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ru">
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:epub="http://www.idpf.org/2007/ops"
+      xml:lang="ru">
 <head>
     <title>Оглавление</title>
     <link rel="stylesheet" type="text/css" href="style.css"/>
@@ -990,6 +1097,46 @@ function buildNcx(title, chapters) {
 
 
 
+// Преобразование универсальных сносок в EPUB-сноски
+function renderEpubFootnotes(xhtml, footnotes) {
+    if (!footnotes || !footnotes.length) return xhtml;
+
+    let content = xhtml;
+
+    footnotes.forEach(n => {
+        // Матчим весь элемент <footnote-ref ...>...</footnote-ref> ИЛИ самозакрывающий
+        const re = new RegExp(
+            `<footnote-ref[^>]*id=["']${n.id}["'][^>]*>(?:[\\s\\S]*?)<\\/footnote-ref>|<footnote-ref[^>]*id=["']${n.id}["'][^>]*\\/?>`,
+            "g"
+        );
+
+        content = content.replace(
+            re,
+            `<a href="#${n.id}_text" epub:type="noteref" class="footnote-ref">[${n.number}]</a>`
+        );
+    });
+
+    const notesHtml = footnotes
+        .map(
+            n => `
+        <aside id="${n.id}_text" epub:type="footnote" class="footnote">
+            <p><sup>${n.number}</sup> ${n.html}</p>
+        </aside>`
+        )
+        .join("");
+
+    content += `
+<div class="footnotes">
+    ${notesHtml}
+</div>
+`;
+
+    return content;
+}
+
+
+
+
 async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
     // JSZip loader
     if (!window.JSZip) {
@@ -1017,14 +1164,9 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
         originalAuthor ||
         null;
 
-
     const betas = authors.filter(a => a.role === "бета");
     const gammas = authors.filter(a => a.role === "гамма");
     const coauthors = authors.filter(a => a.role === "соавтор");
-
-    // const mainAuthor = authors[0];
-    // // const coauthors = authors.slice(1).map(a => a.name).join(", ");
-    // const coauthors = authors.slice(1);
 
     const { fandom, size, tags, description, notes, otherPublication, pairings } = getExtraData();
     const { direction, rating, status } = getDirectionRatingStatus();
@@ -1039,13 +1181,9 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
             return /^\d+$/.test(last);
         });
 
-    // Если список глав пуст — значит глава одна, тавпмвап она уже открыта
     if (rawChapters.length === 0) {
-        rawChapters = [{
-            href: location.href
-        }];
+        rawChapters = [{ href: location.href }];
     }
-
 
     let chaptersList = [];
     let seen = new Set();
@@ -1060,7 +1198,6 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
     const chapters = [];
     let index = 1;
 
-    // 🔥 список неудачных глав
     let failedChapters = [];
 
     // ---------- ПЕРВЫЙ ПРОХОД ----------
@@ -1070,20 +1207,19 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
 
         onProgress(index, total);
 
-        if (isCancelled()) throw new Error("cancelled");
-
         await new Promise(r => setTimeout(r, 800 + Math.random() * 700));
 
-        if (isCancelled()) throw new Error("cancelled");
-
         try {
-            let { title: chTitle, xhtml } = await getChapter(chapter.href);
+            let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
+
+            // 🔥 ВСТАВЛЯЕМ EPUB-СНОСКИ
+            let content = renderEpubFootnotes(xhtml, footnotes);
 
             chapters.push({
                 id: `chapter${index}`,
                 file: `chapter${index}.xhtml`,
                 title: chTitle,
-                content: xhtml
+                content
             });
 
         } catch (err) {
@@ -1104,13 +1240,16 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
             await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000));
 
             try {
-                let { title: chTitle, xhtml } = await getChapter(chapter.href);
+                let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
+
+                // 🔥 ВСТАВЛЯЕМ EPUB-СНОСКИ
+                let content = renderEpubFootnotes(xhtml, footnotes);
 
                 chapters[index - 1] = {
                     id: `chapter${index}`,
                     file: `chapter${index}.xhtml`,
                     title: chTitle,
-                    content: xhtml
+                    content
                 };
 
                 item.success = true;
@@ -1124,7 +1263,6 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
         failedChapters = failedChapters.filter(ch => !ch.success);
     }
 
-    // ---------- Если остались ошибки ----------
     if (failedChapters.length > 0) {
         alert(
             "Некоторые главы не удалось загрузить:\n" +
@@ -1183,23 +1321,16 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
 
     zip.file("OEBPS/toc.ncx", buildNcx(title, chapters));
 
-    // Основной автор (автор фанфика или автор оригинала)
     const safeAuthorName = mainAuthor?.name || "UnknownAuthor";
-
-    // Переводчик (если есть)
     const translatorName = translators[0]?.name || null;
 
-    // Добавляем переводчика в конец названия файла
     let titlePart = title;
-
     if (translatorName) {
         titlePart += `_[${translatorName}]`;
     }
 
-    // Генерация имени файла
     const baseName = generateFileBaseName(safeAuthorName, titlePart);
     const fileName = `${baseName}.epub`;
-
 
     const blob = await zip.generateAsync({
         type: "blob",
