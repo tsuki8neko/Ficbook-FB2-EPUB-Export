@@ -2,8 +2,8 @@
 // @name        Ficbook FB2 & EPUB Export
 // @name:ru         Скачивание книг с фикбука в формате FB2 & EPUB
 // @namespace   http://tampermonkey.net/
-// @version     1.6.0
-// @build       2026-06-12 15:20
+// @version     1.6.1
+// @build       2026-06-13 07:58
 // @description Download books from Ficbook in FB2 & EPUB without registration or limits
 // @description:ru  Скрипт позволяет скачивать книги с Фикбука в форматах FB2 и EPUB без регистрации и ограничений
 // @author      tsuki8neko
@@ -808,12 +808,14 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
 
             tocEntries.push({
                 id: `ch${chapterIndex}`,
-                title: `•\u2003${chTitle}`
+                // title: `•\u2003${chTitle}`
+                title: `${chapterIndex}. ${chTitle}`
             });
 
             fb2Chapters += `
 <section id="ch${chapterIndex}">
-    <title><p>•\u2003${chTitle}</p></title>
+<!--    <title><p>•\u2003${chTitle}</p></title>-->
+    <title><p>${chapterIndex}. ${chTitle}</p></title>
     ${content}
 </section>`;
 
@@ -847,12 +849,14 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
 
                 tocEntries[index - 1] = {
                     id: `ch${index}`,
-                    title: `•\u2003${chTitle}`
+                    // title: `•\u2003${chTitle}`
+                    title: `${chapterIndex}. ${chTitle}`
                 };
 
                 fb2Chapters += `
 <section id="ch${index}">
-    <title><p>•\u2003${chTitle}</p></title>
+<!--    <title><p>•\u2003${chTitle}</p></title>-->
+    <title><p>${chapterIndex}. ${chTitle}</p></title>
     ${content}
 </section>`;
 
