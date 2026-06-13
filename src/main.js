@@ -9,12 +9,14 @@ function insertButtons() {
     }
 }
 
-// 1. Запускаем сразу
+// 1. Сразу пытаемся вставить кнопки.
+// Если DOM уже готов — кнопки появятся мгновенно.
+// Если нет — их добавит DOMContentLoaded ниже.
 insertButtons();
 
-// 2. Если DOM ещё не готов — подождём
+// 2. Если DOM ещё не готов — ждём
 document.addEventListener("DOMContentLoaded", insertButtons);
 
-// 3. Подстраховка: если Ficbook перерисует страницу
+// 3. Подстраховка: если сайт перерисует страницу
 const observer = new MutationObserver(insertButtons);
 observer.observe(document.body, { childList: true, subtree: true });

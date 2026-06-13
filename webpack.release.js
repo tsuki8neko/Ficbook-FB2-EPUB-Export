@@ -46,7 +46,7 @@ module.exports = {
                         `$1\n// @build       ${buildDate}`
                     );
 
-                    //  4. Выравниваем все @ключи, кроме version и build
+                    //  4. Выравниваем все @ключи
                     const keys = [...new Set(
                         [...header.matchAll(/\/\/ @([^\s]+)\s+/g)]
                             .map(m => m[1])
@@ -61,7 +61,7 @@ module.exports = {
                         }
                     );
 
-                    //  5. Склеиваем header + код
+                    //  5. Склеиваем header + code
                     const file = compilation.assets["ficbook-export.user.js"];
                     const content = header + "\n" + file.source();
 

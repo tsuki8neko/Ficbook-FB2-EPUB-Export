@@ -1,4 +1,19 @@
+/**
+ * Извлекает дополнительные метаданные произведения из шапки
+ *
+ * Возвращает:
+ * - фэндом(ы)
+ * - размер работы в словах
+ * - теги
+ * - описание
+ * - примечания автора
+ * - информацию о публикации на других ресурсах
+ * - список пейрингов и персонажей
+ */
+
 export function getExtraData() {
+
+    // Ищет блок описания по тексту заголовка.
     const findBlock = (label) =>
         Array.from(document.querySelectorAll(".description .mb-10"))
             .find(n => n.querySelector("strong")?.innerText.includes(label));
@@ -8,17 +23,6 @@ export function getExtraData() {
     let fandom = fandomBlock
         ? Array.from(fandomBlock.querySelectorAll("a")).map(a => a.innerText.trim()).join(", ")
         : "";
-
-    // // Фикс для ориджиналов — если фэндом пустой
-    // if (!fandom || fandom.trim() === "") {
-    //     // Ищем ссылку на ориджиналы
-    //     const origLink = document.querySelector('a[href*="/fanfiction/no_fandom/originals"]');
-    //     if (origLink) {
-    //         fandom = origLink.innerText.trim(); // "Ориджиналы"
-    //     } else {
-    //         fandom = "Ориджинал"; // fallback на случай редких вариантов
-    //     }
-    // }
 
     // --- РАЗМЕР ---
     const sizeBlock = findBlock("Размер:");
@@ -46,7 +50,7 @@ export function getExtraData() {
         ? otherPublicationBlock.innerText.trim()
         : "";
 
-    // --- ПЕЙРИНГИ ---
+    // --- ПЕЙРИНГИ И ПЕРСОНАЖИ ---
     const pairingBlock =
         findBlock("Пэйринг и персонажи:") ||
         findBlock("Пейринг и персонажи:");
@@ -58,11 +62,23 @@ export function getExtraData() {
         : [];
 
 
-    return { fandom, size, tags, description, notes, otherPublication, pairings };
+    return {
+        fandom,
+        size,
+        tags,
+        description,
+        notes,
+        otherPublication,
+        pairings };
 
 }
 
 export function getDirectionRatingStatus() {
+
+    /**
+     * Извлекает основные характеристики произведения:
+     * направленность, рейтинг и статус.
+     */
 
     // For old layout
     // const direction = document.querySelector(".fanfic-badges .badge-with-icon.direction .badge-text")?.innerText.trim() || "";
@@ -70,10 +86,14 @@ export function getDirectionRatingStatus() {
     // const status = document.querySelector(".fanfic-badges .badge-with-icon[class*='badge-status'] .badge-text")?.innerText.trim() || "";
 
     const root = document.querySelector(".fanfic-badges");
-    if (!root) return { direction: "НЕ НАЙДЕНО", rating: "НЕ НаЙДЕНО", status: "НЕ НАЙДЕНО" };
+    if (!root) return {
+        direction: "Направленность не найдена на странице",
+        rating: "Рейтинг не найжен на странице",
+        status: "Статус не найден на странице" };
 
     // Направленность (Слэш, Джен, Гет и т.п.)
     const directionNode = root.querySelector("[class*='direction']");
+
     const direction =
         directionNode?.querySelector("span")?.innerText.trim() ||
         directionNode?.innerText.trim() ||
@@ -91,6 +111,10 @@ export function getDirectionRatingStatus() {
     return { direction, rating, status };
 }
 
+/**
+* Извлекает автора оригинального произведения,
+* если фанфик является адаптацией или переводом.
+*/
 export function getOriginalAuthor() {
     const blocks = document.querySelectorAll(".mb-10");
 
@@ -110,7 +134,9 @@ export function getOriginalAuthor() {
     return null;
 }
 
+// Извлекает ссылку на оригинальное произведение.
 export function getOriginalWork() {
+
     const blocks = document.querySelectorAll(".mb-10");
 
     for (const block of blocks) {
@@ -123,7 +149,7 @@ export function getOriginalWork() {
 
             let url = link.href;
 
-            // Если это ficbook-редирект — извлекаем оригинал
+            // Если это редирект — извлекаем оригинал
             if (url.includes("/away?url=")) {
                 const real = url.split("/away?url=")[1];
                 url = decodeURIComponent(real);
@@ -135,4 +161,3 @@ export function getOriginalWork() {
 
     return null;
 }
-

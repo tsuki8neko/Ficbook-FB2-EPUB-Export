@@ -35,7 +35,7 @@
 ## Использование
 
 1. Открыть страницу произведения на Ficbook с оглавлением  
-   (страница вида `https://ficbook.net/readfic/*`)
+   (страница вида `https://ficbook.net/readfic/*`) или любую главу 
 2. После загрузки страницы в правом нижнем углу появятся кнопки экспорта
 3. Выбрать нужный формат:
    - **EPUB**
@@ -90,7 +90,7 @@ The project is distributed as a userscript and is intended for local use.
 ## Usage
 
 1. Open a Ficbook work page with a table of contents  
-   (a page like `https://ficbook.net/readfic/*`)
+   (a page like `https://ficbook.net/readfic/*`) or any chapter page
 2. After the page loads, export buttons will appear in the bottom-right corner
 3. Choose the desired format:
    - **EPUB**

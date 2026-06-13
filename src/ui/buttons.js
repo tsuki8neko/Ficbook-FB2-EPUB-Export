@@ -1,11 +1,26 @@
+/**
+ * UI-кнопки для экспорта фанфика:
+ * - FB2
+ * - EPUB
+ * - остановка всех активных загрузок
+ *
+ * Также управляет состоянием:
+ * - параллельные загрузки
+ * - отмена процессов
+ * - обновление UI во время скачивания
+ */
+
 export function createButtons(createFB2, createEPUB) {
+
     // === ГЛОБАЛЬНЫЙ СЧЁТЧИК АКТИВНЫХ ЗАГРУЗОК ===
+    // для отображения кнопки "Остановить"
     let activeDownloads = 0;
 
     function updateStopButton() {
         stopBtn.style.display = activeDownloads > 0 ? "block" : "none";
     }
 
+    // === КОНТЕЙНЕР UI ===
     const container = document.createElement("div");
     container.id = "ficbook-export-buttons";
     container.style.position = "fixed";
@@ -16,6 +31,9 @@ export function createButtons(createFB2, createEPUB) {
     container.style.flexDirection = "column";
     container.style.gap = "8px";
 
+    /**
+     * Вспомогательная функция создания кнопок с единым стилем
+     */
     function createButton(label, bgColor) {
         const btn = document.createElement("button");
         btn.textContent = label;
@@ -40,6 +58,7 @@ export function createButtons(createFB2, createEPUB) {
     // === ГЛОБАЛЬНАЯ ОТМЕНА ВСЕХ ЗАГРУЗОК ===
     let cancelCallbacks = [];
 
+    // вызываем все зарегистрированные cancel-функции
     stopBtn.onclick = () => {
         stopBtn.textContent = "Остановка...";
         cancelCallbacks.forEach(cb => cb());
@@ -52,7 +71,7 @@ export function createButtons(createFB2, createEPUB) {
     function runDownload(startFn, button, label) {
         let cancelled = false;
 
-        // регистрируем отмену
+        // Регистрируем отмену
         cancelCallbacks.push(() => cancelled = true);
 
         activeDownloads++;
@@ -64,6 +83,7 @@ export function createButtons(createFB2, createEPUB) {
         startFn(
             (current, total) => {
                 if (cancelled) throw new Error("cancelled");
+                // Обновление прогресса загрузки
                 button.textContent = `${label}: Загружается глава ${current}/${total}`;
             },
             () => cancelled
@@ -74,7 +94,8 @@ export function createButtons(createFB2, createEPUB) {
                 }
             })
             .finally(() => {
-                // удаляем callback отмены
+
+                // Удаляем callback отмены
                 cancelCallbacks = cancelCallbacks.filter(cb => cb !== (() => cancelled = true));
 
                 activeDownloads--;
@@ -86,12 +107,12 @@ export function createButtons(createFB2, createEPUB) {
             });
     }
 
-    // FB2
+    // === FB2 экспорт ===
     fb2Btn.onclick = () => {
         runDownload(createFB2, fb2Btn, "Скачать FB2");
     };
 
-    // EPUB
+    // === EPUB экспорт ===
     epubBtn.onclick = () => {
         runDownload(createEPUB, epubBtn, "Скачать EPUB");
     };
