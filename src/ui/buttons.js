@@ -56,14 +56,16 @@ export function createButtons(createFB2, createEPUB) {
     stopBtn.style.display = "none";
 
     // === ГЛОБАЛЬНАЯ ОТМЕНА ВСЕХ ЗАГРУЗОК ===
-    let cancelCallbacks = [];
+    let cancelCallbacks = new Set();
 
-    // вызываем все зарегистрированные cancel-функции
+    // Вызываем все зарегистрированные cancel-функции
     stopBtn.onclick = () => {
         stopBtn.textContent = "Остановка...";
+
         cancelCallbacks.forEach(cb => cb());
-        cancelCallbacks = [];
-        activeDownloads = 0;
+        cancelCallbacks.clear();
+
+        // НЕ обнуляем activeDownloads
         updateStopButton();
     };
 
@@ -72,7 +74,11 @@ export function createButtons(createFB2, createEPUB) {
         let cancelled = false;
 
         // Регистрируем отмену
-        cancelCallbacks.push(() => cancelled = true);
+        const cancelFn = () => {
+            cancelled = true;
+        };
+
+        cancelCallbacks.add(cancelFn);
 
         activeDownloads++;
         updateStopButton();
@@ -96,7 +102,7 @@ export function createButtons(createFB2, createEPUB) {
             .finally(() => {
 
                 // Удаляем callback отмены
-                cancelCallbacks = cancelCallbacks.filter(cb => cb !== (() => cancelled = true));
+                cancelCallbacks.delete(cancelFn);
 
                 activeDownloads--;
                 updateStopButton();

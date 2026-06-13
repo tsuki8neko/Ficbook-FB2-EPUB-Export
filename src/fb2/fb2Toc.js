@@ -1,3 +1,10 @@
+/**
+ * Формирует оглавление FB2-книги.
+ * Каждая глава превращается в ссылку вида:
+ * <a xlink:href="#id">Название</a>
+ * Это позволяет навигацию внутри FB2-файла.
+ */
+
 export function buildFb2Toc(tocEntries) {
     return `
 <body name="toc">

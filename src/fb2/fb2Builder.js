@@ -1,3 +1,15 @@
+/**
+ * FB2 builder — основной пайплайн сборки книги.
+ *
+ * Отвечает за:
+ * - загрузку глав
+ * - сбор метаданных (авторы, фэндом, рейтинг и т.д.)
+ * - обработку сносок
+ * - формирование FB2 (header + toc + body + notes)
+ * - повторные попытки загрузки глав
+ * - скачивание готового файла
+ */
+
 import { getTitle } from "../core/getTitle.js";
 import { getAuthors } from "../core/getAuthors.js";
 import { getExtraData, getDirectionRatingStatus } from "../core/getMeta.js";
@@ -11,7 +23,7 @@ import { buildFb2Body } from "./fb2Body.js";
 import { getOriginalAuthor, getOriginalWork } from "../core/getMeta.js";
 
 
-// Очистка HTML‑сущностей, которые FB2 не поддерживает
+// Приведение HTML-сущностей к FB2-совместимому виду
 function cleanHtmlEntitiesForFb2(text) {
     if (!text) return text;
 
@@ -43,13 +55,13 @@ function renderFb2Footnotes(xhtml, footnotes, globalIndexRef) {
     footnotes.forEach(n => {
         const globalNumber = globalIndexRef.value++;
 
-        // 1) Самозакрывающийся <footnote-ref .../>
+        // Самозакрывающийся <footnote-ref .../>
         const reSelfClosing = new RegExp(
             `<footnote-ref[^>]*id=["']${n.id}["'][^>]*\\/?>`,
             "g"
         );
 
-        // 2) Полный <footnote-ref ...>...</footnote-ref>
+        // Полный <footnote-ref ...>...</footnote-ref>
         const reFull = new RegExp(
             `<footnote-ref[^>]*id=["']${n.id}["'][^>]*>[\\s\\S]*?<\\/footnote-ref>`,
             "g"
@@ -67,16 +79,25 @@ function renderFb2Footnotes(xhtml, footnotes, globalIndexRef) {
         });
     });
 
-    // Удаляем ВСЕ оставшиеся </footnote-ref>, если Ficbook вставил их криво
+    // Удаляем ВСЕ оставшиеся </footnote-ref>, если сайт вставил их криво
     content = content.replace(/<\/footnote-ref>/g, "");
 
     return { content, notes };
 }
 
-
-
-
-
+/**
+ * Основная функция генерации FB2-файла.
+ *
+ * Пайплайн:
+ * 1. загрузка основной страницы фанфика
+ * 2. сбор метаданных (авторы, фэндом, серия и т.д.)
+ * 3. получение списка глав
+ * 4. загрузка каждой главы
+ * 5. обработка сносок
+ * 6. повторная попытка неудачных глав
+ * 7. сбор FB2 (header + toc + body + notes)
+ * 8. скачивание файла
+ */
 export async function createFB2(onProgress = () => {}, isCancelled = () => false) {
 
     // ---------------------------------------------------------
@@ -118,7 +139,7 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
 
 
     // ---------------------------------------------------------
-    // Чтение метаданных
+    // METADATA
     // ---------------------------------------------------------
     const title = getTitle();
     const authors = getAuthors();
@@ -145,7 +166,7 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
 
 
     // ---------------------------------------------------------
-    // Ищем серию
+    // SERIES
     // ---------------------------------------------------------
     let series = null;
 
@@ -159,7 +180,7 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
 
 
     // ---------------------------------------------------------
-    // Сбор списка глав
+    // CHAPTERS
     // ---------------------------------------------------------
     let rawChapters = Array.from(ficDoc.querySelectorAll(".list-of-fanfic-parts .part-link"))
         .filter(ch => {
@@ -185,9 +206,8 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
 
     const total = chapters.length;
 
-
     // ---------------------------------------------------------
-    // Подготовка FB2
+    // FB2 HEADER
     // ---------------------------------------------------------
     let fb2Header = buildFb2Header({
         title,
@@ -222,7 +242,7 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
 
 
     // ---------------------------------------------------------
-    // ПЕРВЫЙ ПРОХОД
+    // FIRST PASS
     // ---------------------------------------------------------
     for (let chapter of chapters) {
 
@@ -263,7 +283,7 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
 
 
     // ---------------------------------------------------------
-    // ВТОРОЙ ПРОХОД
+    // SECOND PASS
     // ---------------------------------------------------------
     if (failedChapters.length > 0) {
         console.warn("Повторная загрузка неудачных глав:", failedChapters.length);
@@ -305,7 +325,9 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
         failedChapters = failedChapters.filter(ch => !ch.success);
     }
 
-
+    // ---------------------------------------------------------
+    // FINAL CHECK
+    // ---------------------------------------------------------
     if (failedChapters.length > 0) {
         alert(
             "Некоторые главы не удалось загрузить:\n" +
@@ -313,9 +335,8 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
         );
     }
 
-
     // ---------------------------------------------------------
-    // Сборка FB2
+    // BUILD FB2
     // ---------------------------------------------------------
     let fb2Toc = buildFb2Toc(tocEntries);
     let fb2Body = buildFb2Body(fb2Chapters);

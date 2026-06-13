@@ -1,3 +1,14 @@
+/**
+ * Формирует FB2 заголовок на основе метаданных произведения
+ *
+ * Сюда входят:
+ * - информация об авторах (основной, соавторы, переводчики и т.д.)
+ * - метаданные фанфика (фэндом, рейтинг, статус, размер)
+ * - описание и примечания
+ * - ссылки на оригинал и источник
+ * - служебная информация FB2 (дата, id, язык)
+ */
+
 import { escapeXml } from "../utils/escapeXml.js";
 import { textToParagraphs } from "../utils/textToParagraphs.js";
 
@@ -35,6 +46,7 @@ export function buildFb2Header({
     <description>
         <title-info>
 
+            <!-- === ОСНОВНОЙ АВТОР === -->
             <author>
                 <username>${escapeXml(mainAuthor.name)}</username>
                 <first-name>${escapeXml(mainAuthor.name)}</first-name>
@@ -44,7 +56,8 @@ export function buildFb2Header({
             <book-title>${escapeXml(title)}</book-title>
 
             <annotation>
-
+                
+                <!-- === ШАПКА === -->
                 <p><strong>Ссылка на работу:</strong> ${escapeXml(location.href)}</p>
                 <p><strong>Направленность:</strong> ${escapeXml(direction)}</p>
 
@@ -110,18 +123,21 @@ export function buildFb2Header({
 
                 <p></p>
 
+                <!-- === ПРИМЕЧАНИЯ АВТОРА === -->
                 <p><strong>Описание:</strong></p>
                 ${textToParagraphs(description)}
 
                 <p></p>
 
+                <!-- === ПРИМЕЧАНИЯ АВТОРА === -->
                 <p><strong>Примечания:</strong></p>
                 ${textToParagraphs(notes)}
 
                 <p><strong>Публикация на других ресурсах:</strong> ${escapeXml(otherPublication || "")}</p>
 
             </annotation>
-
+            
+            <!-- === FB2 СЛУЖЕБНЫЕ ДАННЫЕ === -->
             <date value="${new Date().toISOString().split("T")[0]}">${new Date().toLocaleDateString()}</date>
             <lang>ru</lang>
 
