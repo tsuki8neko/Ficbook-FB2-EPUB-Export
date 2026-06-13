@@ -1,21 +1,23 @@
 // ==UserScript==
-// @name        Ficbook FB2 & EPUB Export
-// @name:ru         Скачивание книг с фикбука в формате FB2 & EPUB
-// @namespace   http://tampermonkey.net/
-// @version     1.6.1
-// @build       2026-06-13 07:58
-// @description Download books from Ficbook in FB2 & EPUB without registration or limits
-// @description:ru  Скрипт позволяет скачивать книги с Фикбука в форматах FB2 и EPUB без регистрации и ограничений
-// @author      tsuki8neko
-// @match       https://ficbook.net/readfic/*
-// @grant       GM_xmlhttpRequest
-// @license     Apache-2.0
-// @updateURL   https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
-// @downloadURL https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
+// @name           Ficbook FB2 & EPUB Export
+// @name:ru        Скачивание книг с фикбука в формате FB2 & EPUB
+// @namespace      http://tampermonkey.net/
+// @version        1.6.2
+// @build          2026-06-13 13:11
+// @description    Download books from Ficbook in FB2 & EPUB without registration or limits
+// @description:ru Скрипт позволяет скачивать книги с Фикбука в форматах FB2 и EPUB без регистрации и ограничений
+// @author         tsuki8neko
+// @match          https://ficbook.net/readfic/*
+// @grant          GM_xmlhttpRequest
+// @license        Apache-2.0
+// @updateURL      https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
+// @downloadURL    https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
 // ==/UserScript==
 
 
 ;// ./src/core/getTitle.js
+// Извлекает название произведения
+
 function getTitle() {
     return (
         document.querySelector("h1.heading[itemprop='name']")?.innerText.trim() ||
@@ -26,26 +28,34 @@ function getTitle() {
 }
 
 ;// ./src/core/getAuthors.js
-// export function getAuthors() {
-//     const hat = document.querySelector(".fanfic-hat-body");
-//     const authorsNodes = hat.querySelectorAll(".creator-info .creator-username");
-//     return Array.from(authorsNodes).map(a => ({
-//         name: a.innerText.trim(),
-//         url: a.href
-//     }));
-// }
+/**
+ * Извлекает список авторов и соавторов произведения.
+ *
+ * Роли бывают разными:
+ * - автор
+ * - бета
+ * - гамма
+ * - переводчик
+ * - редактор
+ *
+ * Функция собирает все такие блоки и возвращает массив объектов.
+ */
 
 function getAuthors() {
+    // Основной блок с информацией о фанфике ("шапка")
     const hat = document.querySelector(".fanfic-hat-body");
+    // Внутри шапки находятся элементы .creator-info — каждый отвечает за одного участника
     const creators = hat.querySelectorAll(".creator-info");
 
     return Array.from(creators).map(c => {
         const nameNode = c.querySelector(".creator-username");
+        // Узел с ролью (например: "Автор", "Бета", "Переводчик")
         const roleNode = c.querySelector(".small-text.text-muted");
 
         return {
             name: nameNode?.innerText.trim() || "",
             url: nameNode?.href || "",
+            // Роль автора, приводим к нижнему регистру для единообразия
             role: roleNode?.innerText.trim().toLowerCase() || "автор"
         };
     });
@@ -53,7 +63,22 @@ function getAuthors() {
 
 
 ;// ./src/core/getMeta.js
+/**
+ * Извлекает дополнительные метаданные произведения из шапки
+ *
+ * Возвращает:
+ * - фэндом(ы)
+ * - размер работы в словах
+ * - теги
+ * - описание
+ * - примечания автора
+ * - информацию о публикации на других ресурсах
+ * - список пейрингов и персонажей
+ */
+
 function getExtraData() {
+
+    // Ищет блок описания по тексту заголовка.
     const findBlock = (label) =>
         Array.from(document.querySelectorAll(".description .mb-10"))
             .find(n => n.querySelector("strong")?.innerText.includes(label));
@@ -63,17 +88,6 @@ function getExtraData() {
     let fandom = fandomBlock
         ? Array.from(fandomBlock.querySelectorAll("a")).map(a => a.innerText.trim()).join(", ")
         : "";
-
-    // // Фикс для ориджиналов — если фэндом пустой
-    // if (!fandom || fandom.trim() === "") {
-    //     // Ищем ссылку на ориджиналы
-    //     const origLink = document.querySelector('a[href*="/fanfiction/no_fandom/originals"]');
-    //     if (origLink) {
-    //         fandom = origLink.innerText.trim(); // "Ориджиналы"
-    //     } else {
-    //         fandom = "Ориджинал"; // fallback на случай редких вариантов
-    //     }
-    // }
 
     // --- РАЗМЕР ---
     const sizeBlock = findBlock("Размер:");
@@ -101,7 +115,7 @@ function getExtraData() {
         ? otherPublicationBlock.innerText.trim()
         : "";
 
-    // --- ПЕЙРИНГИ ---
+    // --- ПЕЙРИНГИ И ПЕРСОНАЖИ ---
     const pairingBlock =
         findBlock("Пэйринг и персонажи:") ||
         findBlock("Пейринг и персонажи:");
@@ -113,11 +127,23 @@ function getExtraData() {
         : [];
 
 
-    return { fandom, size, tags, description, notes, otherPublication, pairings };
+    return {
+        fandom,
+        size,
+        tags,
+        description,
+        notes,
+        otherPublication,
+        pairings };
 
 }
 
 function getDirectionRatingStatus() {
+
+    /**
+     * Извлекает основные характеристики произведения:
+     * направленность, рейтинг и статус.
+     */
 
     // For old layout
     // const direction = document.querySelector(".fanfic-badges .badge-with-icon.direction .badge-text")?.innerText.trim() || "";
@@ -125,10 +151,14 @@ function getDirectionRatingStatus() {
     // const status = document.querySelector(".fanfic-badges .badge-with-icon[class*='badge-status'] .badge-text")?.innerText.trim() || "";
 
     const root = document.querySelector(".fanfic-badges");
-    if (!root) return { direction: "НЕ НАЙДЕНО", rating: "НЕ НаЙДЕНО", status: "НЕ НАЙДЕНО" };
+    if (!root) return {
+        direction: "Направленность не найдена на странице",
+        rating: "Рейтинг не найжен на странице",
+        status: "Статус не найден на странице" };
 
     // Направленность (Слэш, Джен, Гет и т.п.)
     const directionNode = root.querySelector("[class*='direction']");
+
     const direction =
         directionNode?.querySelector("span")?.innerText.trim() ||
         directionNode?.innerText.trim() ||
@@ -146,6 +176,10 @@ function getDirectionRatingStatus() {
     return { direction, rating, status };
 }
 
+/**
+* Извлекает автора оригинального произведения,
+* если фанфик является адаптацией или переводом.
+*/
 function getOriginalAuthor() {
     const blocks = document.querySelectorAll(".mb-10");
 
@@ -165,7 +199,9 @@ function getOriginalAuthor() {
     return null;
 }
 
+// Извлекает ссылку на оригинальное произведение.
 function getOriginalWork() {
+
     const blocks = document.querySelectorAll(".mb-10");
 
     for (const block of blocks) {
@@ -178,7 +214,7 @@ function getOriginalWork() {
 
             let url = link.href;
 
-            // Если это ficbook-редирект — извлекаем оригинал
+            // Если это редирект — извлекаем оригинал
             if (url.includes("/away?url=")) {
                 const real = url.split("/away?url=")[1];
                 url = decodeURIComponent(real);
@@ -191,14 +227,21 @@ function getOriginalWork() {
     return null;
 }
 
-
 ;// ./src/utils/delay.js
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 ;// ./src/core/getFootnotes.js
-// extractFootnotes.js
+/**
+ * Извлекает сноски из текста главы и формирует единый список примечаний.
+ *
+ * На сайте ссылки на сноски находятся в тексте как элементы
+ * span.footnote, а сами тексты сносок приходят отдельно в объекте
+ * textFootnotes. Функция связывает их между собой, заменяет ссылки
+ * на универсальные маркеры и возвращает массив примечаний.
+ * Приводит HTML сносок к XHTML-совместимому виду.
+ */
 
 function fixHtml(html) {
     return html
@@ -216,9 +259,10 @@ function extractFootnotes(doc, contentNode, notesMap = {}) {
         const text = notesMap[id];
         if (!text) return;
 
+        // Сквозная нумерация сносок по порядку появления в тексте
         const number = index + 1;
 
-        // Универсальный маркер
+        // Заменяем исходный HTML-элемент универсальным маркером
         anchor.outerHTML = `<footnote-ref id="${id}" number="${number}"/>`;
 
         notes.push({
@@ -235,16 +279,29 @@ function extractFootnotes(doc, contentNode, notesMap = {}) {
 
 
 
+/**
+ * Загружает и парсит одну главу.
+ *
+ *   Функция возвращает:
+ *   title   — заголовок главы
+ *   plain   — чистый текст без HTML
+ *   xhtml   — очищенный HTML, готовый для FB2/EPUB
+ *   footnotes — массив сносок
+ */
+
 async function getChapter(url, attempt = 1) {
     const MAX_ATTEMPTS = 7;
 
+    // Небольшая задержка перед запросом
     await delay(500 + Math.random() * 300);
 
     let res;
     try {
+        // Пробуем загрузить страницу главы
         res = await fetch(url);
     } catch (e) {
         if (attempt < MAX_ATTEMPTS) {
+            // Если ошибка сети — пробуем снова с увеличением задержки
             await delay(1000 * attempt);
             return getChapter(url, attempt + 1);
         }
@@ -253,6 +310,7 @@ async function getChapter(url, attempt = 1) {
 
     let html = await res.text();
 
+    // Проверяем, не вернул ли сайт пустой/ошибочный HTML
     const looksEmpty =
         !html ||
         html.length < 500 ||
@@ -264,6 +322,7 @@ async function getChapter(url, attempt = 1) {
 
     if (looksEmpty) {
         if (attempt < MAX_ATTEMPTS) {
+            // Увеличиваем задержку и пробуем снова
             await delay(1200 * attempt + Math.random() * 500);
             return getChapter(url, attempt + 1);
         }
@@ -273,25 +332,29 @@ async function getChapter(url, attempt = 1) {
     // --- Парсим HTML ---
     let doc = new DOMParser().parseFromString(html, "text/html");
 
+    // Заголовок главы
     let title =
         doc.querySelector(".title-area h2, .part-title h3")?.innerText.trim() ||
         "Глава";
 
-    // Убираем мусор
+    // Удаляем лишние элементы, которые не должны попадать в текст
     doc.querySelectorAll(".part-date, .part-info").forEach(el => el.remove());
 
+    // Основной контейнер текста главы
     let contentNode =
         doc.querySelector("#part_content") ||
         doc.querySelector("#content.js-part-text, #content.part_text, #content");
 
     if (contentNode) {
+        // Удаляем рекламу, футеры, кнопки, настройки текста и прочий мусор
         contentNode.querySelectorAll(
             ".js-collapsible, .js-text-settings-collapse-button, .ad, .part-footer, .chapter-time, .text_settings, .tags"
         ).forEach(el => el.remove());
 
+        // Иногда сайт вставляет заголовок внутри текста — убираем
         contentNode.querySelector("h1, h2, h3")?.remove();
     }
-
+    // Чистый текст без HTML
     let plain = contentNode ? contentNode.innerText.trim() : "";
 
     if (!plain) {
@@ -302,30 +365,45 @@ async function getChapter(url, attempt = 1) {
         throw new Error(`Не удалось загрузить ${url}: контент пустой`);
     }
 
-    // --- ВАЖНО: извлекаем textFootnotes из HTML ---
+    // --- Извлекаем карту сносок из JS-переменной textFootnotes ---
     const footnotesMatch = html.match(/\s+textFootnotes\s*=\s*({.*?})/);
     const notesMap = footnotesMatch ? JSON.parse(footnotesMatch[1]) : {};
 
-    // --- Извлечение сносок (меняет contentNode.innerHTML) ---
+    // --- Извлекаем сноски и заменяем ссылки в тексте ---
     const footnotes = extractFootnotes(doc, contentNode, notesMap);
 
-    // --- Превращаем двойные переносы в <p>, но осторожно ---
+    /**
+     * Превращает двойные переносы в параграфы <p>,
+     * но НЕ оборачивает блоки, которые уже являются HTML‑структурой.
+     */
     function paragraphs(html) {
-        return html
-            .replace(/\r/g, "")
-            .split(/\n{2,}/)
+        html = html.replace(/\r/g, "");
+        html = html.replace(/<br\s*\/?>/gi, "\n");
+
+        const rawBlocks = html
+            .split(/\n\s*\n+/) // двойные переносы → блоки
+            .map(b => b.trim())
+            .filter(b => b.length > 0);
+
+        return rawBlocks
             .map(block => {
-                const trimmed = block.trim();
+                // Если блок начинается с блочного тега — НЕ оборачиваем
+                if (/^<\/?(div|section|title|h1|h2|h3|ul|ol|li|table|tr|td)\b/i.test(block)) {
+                    return block;
+                }
 
-                if (trimmed.startsWith("<")) return trimmed;
-                if (/<[a-z][\s\S]*>/i.test(trimmed)) return trimmed;
-                if (trimmed.includes("<div") || trimmed.includes("</div")) return trimmed;
+                // Если внутри блока есть блочные теги — НЕ оборачиваем
+                if (/<\/?(div|section|title|p|h1|h2|h3|ul|ol|li|table|tr|td)\b/i.test(block)) {
+                    return block;
+                }
 
-                return `<p>${trimmed}</p>`;
+                // Обычный текст → оборачиваем в <p>
+                return `<p>${block}</p>`;
             })
             .join("\n");
     }
 
+    // XHTML‑версия текста главы
     let xhtml = paragraphs(contentNode.innerHTML.trim());
 
     // ---------------------------------------------------------
@@ -333,10 +411,8 @@ async function getChapter(url, attempt = 1) {
     // ---------------------------------------------------------
 
     // Примечания перед текстом
-    // Примечания перед текстом
     const topNotes = doc.querySelector(".part-comment-top");
     if (topNotes) {
-        // Разделитель должен быть ПОСЛЕ примечаний
         xhtml = xhtml.replace(
             /(<div class="part-comment-top"[\s\S]*?<\/div>)/,
             `$1\n<p>--------------</p>`
@@ -346,7 +422,6 @@ async function getChapter(url, attempt = 1) {
     // Примечания после текста
     const bottomNotes = doc.querySelector(".part-comment-bottom");
     if (bottomNotes) {
-        // Разделитель должен быть ПЕРЕД примечаниями
         xhtml = xhtml.replace(
             /(<div class="part-comment-bottom"[\s\S]*?<\/div>)/,
             `<p>--------------</p>\n$1`
@@ -362,6 +437,18 @@ async function getChapter(url, attempt = 1) {
 }
 
 ;// ./src/utils/generateFileName.js
+/**
+ * Формирует базовое имя файла для экспорта.
+ *
+ * Итоговый формат:
+ * author_-_title
+ *
+ * Используется для:
+ * - FB2 файла
+ * - EPUB файла
+ * - архива экспортов
+ */
+
 function sanitizeFilePart(str) {
     return str.replace(/\s+/g, "_").replace(/[\\/:*?"<>|]+/g, "");
 }
@@ -371,6 +458,17 @@ function generateFileBaseName(mainAuthorName, title) {
 }
 
 ;// ./src/utils/escapeXml.js
+/**
+ * Экранирует специальные символы XML.
+ *
+ * Нужно для безопасной вставки текста в:
+ * - FB2
+ * - EPUB
+ * - XHTML
+ *
+ * Иначе документ может стать невалидным XML.
+ */
+
 function escapeXml(str) {
     return str
         .replace(/&/g, "&amp;")
@@ -383,6 +481,17 @@ function escapeXml(str) {
 ;// ./src/utils/textToParagraphs.js
 
 
+/**
+ * Преобразует обычный текст в XHTML-параграфы.
+ *
+ * - разбивает текст по переносам строк
+ * - удаляет пустые строки
+ * - экранирует XML-символы
+ * - оборачивает каждую строку в <p>
+ *
+ * Генерация тела текста.
+ */
+
 function textToParagraphs(text) {
     return text.split(/\n+/)
         .map(line => line.trim())
@@ -392,6 +501,17 @@ function textToParagraphs(text) {
 }
 
 ;// ./src/fb2/fb2Header.js
+/**
+ * Формирует FB2 заголовок на основе метаданных произведения
+ *
+ * Сюда входят:
+ * - информация об авторах (основной, соавторы, переводчики и т.д.)
+ * - метаданные фанфика (фэндом, рейтинг, статус, размер)
+ * - описание и примечания
+ * - ссылки на оригинал и источник
+ * - служебная информация FB2 (дата, id, язык)
+ */
+
 
 
 
@@ -429,6 +549,7 @@ function buildFb2Header({
     <description>
         <title-info>
 
+            <!-- === ОСНОВНОЙ АВТОР === -->
             <author>
                 <username>${escapeXml(mainAuthor.name)}</username>
                 <first-name>${escapeXml(mainAuthor.name)}</first-name>
@@ -438,7 +559,8 @@ function buildFb2Header({
             <book-title>${escapeXml(title)}</book-title>
 
             <annotation>
-
+                
+                <!-- === ШАПКА === -->
                 <p><strong>Ссылка на работу:</strong> ${escapeXml(location.href)}</p>
                 <p><strong>Направленность:</strong> ${escapeXml(direction)}</p>
 
@@ -504,18 +626,21 @@ function buildFb2Header({
 
                 <p></p>
 
+                <!-- === ПРИМЕЧАНИЯ АВТОРА === -->
                 <p><strong>Описание:</strong></p>
                 ${textToParagraphs(description)}
 
                 <p></p>
 
+                <!-- === ПРИМЕЧАНИЯ АВТОРА === -->
                 <p><strong>Примечания:</strong></p>
                 ${textToParagraphs(notes)}
 
                 <p><strong>Публикация на других ресурсах:</strong> ${escapeXml(otherPublication || "")}</p>
 
             </annotation>
-
+            
+            <!-- === FB2 СЛУЖЕБНЫЕ ДАННЫЕ === -->
             <date value="${new Date().toISOString().split("T")[0]}">${new Date().toLocaleDateString()}</date>
             <lang>ru</lang>
 
@@ -532,6 +657,13 @@ function buildFb2Header({
 }
 
 ;// ./src/fb2/fb2Toc.js
+/**
+ * Формирует оглавление FB2-книги.
+ * Каждая глава превращается в ссылку вида:
+ * <a xlink:href="#id">Название</a>
+ * Это позволяет навигацию внутри FB2-файла.
+ */
+
 function buildFb2Toc(tocEntries) {
     return `
 <body name="toc">
@@ -546,14 +678,11 @@ function buildFb2Toc(tocEntries) {
 }
 
 ;// ./src/fb2/fb2Body.js
-// export function buildFb2Body(fb2Chapters) {
-//     return `
-// <body>
-// ${fb2Chapters}
-// </body>
-// </FictionBook>
-// `;
-// }
+/**
+ * Формирует тело FB2-книги.
+ * Вставляется уже готовая разметка глав (fb2Chapters),
+ * которая была собрана ранее из парсинга текста.
+ */
 
 function buildFb2Body(fb2Chapters) {
     return `
@@ -564,6 +693,17 @@ ${fb2Chapters}
 }
 
 ;// ./src/fb2/fb2Builder.js
+/**
+ * FB2 builder — основной пайплайн сборки книги.
+ *
+ * Отвечает за:
+ * - загрузку глав
+ * - сбор метаданных (авторы, фэндом, рейтинг и т.д.)
+ * - обработку сносок
+ * - формирование FB2 (header + toc + body + notes)
+ * - повторные попытки загрузки глав
+ * - скачивание готового файла
+ */
 
 
 
@@ -577,7 +717,8 @@ ${fb2Chapters}
 
 
 
-// Очистка HTML‑сущностей, которые FB2 не поддерживает
+
+// Приведение HTML-сущностей к FB2-совместимому виду
 function cleanHtmlEntitiesForFb2(text) {
     if (!text) return text;
 
@@ -609,13 +750,13 @@ function renderFb2Footnotes(xhtml, footnotes, globalIndexRef) {
     footnotes.forEach(n => {
         const globalNumber = globalIndexRef.value++;
 
-        // 1) Самозакрывающийся <footnote-ref .../>
+        // Самозакрывающийся <footnote-ref .../>
         const reSelfClosing = new RegExp(
             `<footnote-ref[^>]*id=["']${n.id}["'][^>]*\\/?>`,
             "g"
         );
 
-        // 2) Полный <footnote-ref ...>...</footnote-ref>
+        // Полный <footnote-ref ...>...</footnote-ref>
         const reFull = new RegExp(
             `<footnote-ref[^>]*id=["']${n.id}["'][^>]*>[\\s\\S]*?<\\/footnote-ref>`,
             "g"
@@ -633,16 +774,25 @@ function renderFb2Footnotes(xhtml, footnotes, globalIndexRef) {
         });
     });
 
-    // Удаляем ВСЕ оставшиеся </footnote-ref>, если Ficbook вставил их криво
+    // Удаляем ВСЕ оставшиеся </footnote-ref>, если сайт вставил их криво
     content = content.replace(/<\/footnote-ref>/g, "");
 
     return { content, notes };
 }
 
-
-
-
-
+/**
+ * Основная функция генерации FB2-файла.
+ *
+ * Пайплайн:
+ * 1. загрузка основной страницы фанфика
+ * 2. сбор метаданных (авторы, фэндом, серия и т.д.)
+ * 3. получение списка глав
+ * 4. загрузка каждой главы
+ * 5. обработка сносок
+ * 6. повторная попытка неудачных глав
+ * 7. сбор FB2 (header + toc + body + notes)
+ * 8. скачивание файла
+ */
 async function createFB2(onProgress = () => {}, isCancelled = () => false) {
 
     // ---------------------------------------------------------
@@ -684,7 +834,7 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
 
 
     // ---------------------------------------------------------
-    // Чтение метаданных
+    // METADATA
     // ---------------------------------------------------------
     const title = getTitle();
     const authors = getAuthors();
@@ -711,7 +861,7 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
 
 
     // ---------------------------------------------------------
-    // Ищем серию
+    // SERIES
     // ---------------------------------------------------------
     let series = null;
 
@@ -725,7 +875,7 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
 
 
     // ---------------------------------------------------------
-    // Сбор списка глав
+    // CHAPTERS
     // ---------------------------------------------------------
     let rawChapters = Array.from(ficDoc.querySelectorAll(".list-of-fanfic-parts .part-link"))
         .filter(ch => {
@@ -751,9 +901,8 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
 
     const total = chapters.length;
 
-
     // ---------------------------------------------------------
-    // Подготовка FB2
+    // FB2 HEADER
     // ---------------------------------------------------------
     let fb2Header = buildFb2Header({
         title,
@@ -788,7 +937,7 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
 
 
     // ---------------------------------------------------------
-    // ПЕРВЫЙ ПРОХОД
+    // FIRST PASS
     // ---------------------------------------------------------
     for (let chapter of chapters) {
 
@@ -829,7 +978,7 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
 
 
     // ---------------------------------------------------------
-    // ВТОРОЙ ПРОХОД
+    // SECOND PASS
     // ---------------------------------------------------------
     if (failedChapters.length > 0) {
         console.warn("Повторная загрузка неудачных глав:", failedChapters.length);
@@ -871,7 +1020,9 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
         failedChapters = failedChapters.filter(ch => !ch.success);
     }
 
-
+    // ---------------------------------------------------------
+    // FINAL CHECK
+    // ---------------------------------------------------------
     if (failedChapters.length > 0) {
         alert(
             "Некоторые главы не удалось загрузить:\n" +
@@ -879,9 +1030,8 @@ async function createFB2(onProgress = () => {}, isCancelled = () => false) {
         );
     }
 
-
     // ---------------------------------------------------------
-    // Сборка FB2
+    // BUILD FB2
     // ---------------------------------------------------------
     let fb2Toc = buildFb2Toc(tocEntries);
     let fb2Body = buildFb2Body(fb2Chapters);
@@ -1554,14 +1704,29 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
 }
 
 ;// ./src/ui/buttons.js
+/**
+ * UI-кнопки для экспорта фанфика:
+ * - FB2
+ * - EPUB
+ * - остановка всех активных загрузок
+ *
+ * Также управляет состоянием:
+ * - параллельные загрузки
+ * - отмена процессов
+ * - обновление UI во время скачивания
+ */
+
 function createButtons(createFB2, createEPUB) {
+
     // === ГЛОБАЛЬНЫЙ СЧЁТЧИК АКТИВНЫХ ЗАГРУЗОК ===
+    // для отображения кнопки "Остановить"
     let activeDownloads = 0;
 
     function updateStopButton() {
         stopBtn.style.display = activeDownloads > 0 ? "block" : "none";
     }
 
+    // === КОНТЕЙНЕР UI ===
     const container = document.createElement("div");
     container.id = "ficbook-export-buttons";
     container.style.position = "fixed";
@@ -1572,6 +1737,9 @@ function createButtons(createFB2, createEPUB) {
     container.style.flexDirection = "column";
     container.style.gap = "8px";
 
+    /**
+     * Вспомогательная функция создания кнопок с единым стилем
+     */
     function createButton(label, bgColor) {
         const btn = document.createElement("button");
         btn.textContent = label;
@@ -1594,13 +1762,16 @@ function createButtons(createFB2, createEPUB) {
     stopBtn.style.display = "none";
 
     // === ГЛОБАЛЬНАЯ ОТМЕНА ВСЕХ ЗАГРУЗОК ===
-    let cancelCallbacks = [];
+    let cancelCallbacks = new Set();
 
+    // Вызываем все зарегистрированные cancel-функции
     stopBtn.onclick = () => {
         stopBtn.textContent = "Остановка...";
+
         cancelCallbacks.forEach(cb => cb());
-        cancelCallbacks = [];
-        activeDownloads = 0;
+        cancelCallbacks.clear();
+
+        // НЕ обнуляем activeDownloads
         updateStopButton();
     };
 
@@ -1608,8 +1779,12 @@ function createButtons(createFB2, createEPUB) {
     function runDownload(startFn, button, label) {
         let cancelled = false;
 
-        // регистрируем отмену
-        cancelCallbacks.push(() => cancelled = true);
+        // Регистрируем отмену
+        const cancelFn = () => {
+            cancelled = true;
+        };
+
+        cancelCallbacks.add(cancelFn);
 
         activeDownloads++;
         updateStopButton();
@@ -1620,6 +1795,7 @@ function createButtons(createFB2, createEPUB) {
         startFn(
             (current, total) => {
                 if (cancelled) throw new Error("cancelled");
+                // Обновление прогресса загрузки
                 button.textContent = `${label}: Загружается глава ${current}/${total}`;
             },
             () => cancelled
@@ -1630,8 +1806,9 @@ function createButtons(createFB2, createEPUB) {
                 }
             })
             .finally(() => {
-                // удаляем callback отмены
-                cancelCallbacks = cancelCallbacks.filter(cb => cb !== (() => cancelled = true));
+
+                // Удаляем callback отмены
+                cancelCallbacks.delete(cancelFn);
 
                 activeDownloads--;
                 updateStopButton();
@@ -1642,12 +1819,12 @@ function createButtons(createFB2, createEPUB) {
             });
     }
 
-    // FB2
+    // === FB2 экспорт ===
     fb2Btn.onclick = () => {
         runDownload(createFB2, fb2Btn, "Скачать FB2");
     };
 
-    // EPUB
+    // === EPUB экспорт ===
     epubBtn.onclick = () => {
         runDownload(createEPUB, epubBtn, "Скачать EPUB");
     };
@@ -1670,13 +1847,15 @@ function insertButtons() {
     }
 }
 
-// 1. Запускаем сразу
+// 1. Сразу пытаемся вставить кнопки.
+// Если DOM уже готов — кнопки появятся мгновенно.
+// Если нет — их добавит DOMContentLoaded ниже.
 insertButtons();
 
-// 2. Если DOM ещё не готов — подождём
+// 2. Если DOM ещё не готов — ждём
 document.addEventListener("DOMContentLoaded", insertButtons);
 
-// 3. Подстраховка: если Ficbook перерисует страницу
+// 3. Подстраховка: если сайт перерисует страницу
 const observer = new MutationObserver(insertButtons);
 observer.observe(document.body, { childList: true, subtree: true });
 
