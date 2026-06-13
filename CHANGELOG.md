@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.2](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.6.1...v1.6.2) (2026-06-13)
+
+
+### Bug Fixes
+
+* fix text paragraph splitting in parsed chapters ([837e8c4](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/837e8c4e98373f55f98d826e4d1f2e2c38e074e8))
+
 ## [1.6.1](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.6.0...v1.6.1) (2026-06-13)
 
 
