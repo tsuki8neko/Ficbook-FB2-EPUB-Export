@@ -242,12 +242,14 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
 
             tocEntries.push({
                 id: `ch${chapterIndex}`,
-                title: `•\u2003${chTitle}`
+                // title: `•\u2003${chTitle}`
+                title: `${chapterIndex}. ${chTitle}`
             });
 
             fb2Chapters += `
 <section id="ch${chapterIndex}">
-    <title><p>•\u2003${chTitle}</p></title>
+<!--    <title><p>•\u2003${chTitle}</p></title>-->
+    <title><p>${chapterIndex}. ${chTitle}</p></title>
     ${content}
 </section>`;
 
@@ -281,12 +283,14 @@ export async function createFB2(onProgress = () => {}, isCancelled = () => false
 
                 tocEntries[index - 1] = {
                     id: `ch${index}`,
-                    title: `•\u2003${chTitle}`
+                    // title: `•\u2003${chTitle}`
+                    title: `${chapterIndex}. ${chTitle}`
                 };
 
                 fb2Chapters += `
 <section id="ch${index}">
-    <title><p>•\u2003${chTitle}</p></title>
+<!--    <title><p>•\u2003${chTitle}</p></title>-->
+    <title><p>${chapterIndex}. ${chTitle}</p></title>
     ${content}
 </section>`;
 
