@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.6.0...v1.6.1) (2026-06-13)
+
+
+### Bug Fixes
+
+* add chapter numbering to the table of contents ([5c57aa0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/5c57aa0450e41eb0ca21e25727e6d6d39b7793cd))
+
 ## [1.6.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.5.0...v1.6.0) (2026-06-12)
 
 
