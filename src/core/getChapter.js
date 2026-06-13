@@ -77,25 +77,39 @@ export async function getChapter(url, attempt = 1) {
 
     // --- Превращаем двойные переносы в <p>, но осторожно ---
     function paragraphs(html) {
-        return html
-            .replace(/\r/g, "")
-            .split(/\n{2,}/)
+        html = html.replace(/\r/g, "");
+        html = html.replace(/<br\s*\/?>/gi, "\n");
+
+        const rawBlocks = html
+            .split(/\n\s*\n+/)
+            .map(b => b.trim())
+            .filter(b => b.length > 0);
+
+        return rawBlocks
             .map(block => {
-                const trimmed = block.trim();
+                // 1. Если блок начинается с блочного тега — НЕ оборачиваем
+                if (/^<\/?(div|section|title|h1|h2|h3|ul|ol|li|table|tr|td)\b/i.test(block)) {
+                    return block;
+                }
 
-                if (trimmed.startsWith("<")) return trimmed;
-                if (/<[a-z][\s\S]*>/i.test(trimmed)) return trimmed;
-                if (trimmed.includes("<div") || trimmed.includes("</div")) return trimmed;
+                // 2. Если внутри блока есть блочные теги — НЕ оборачиваем
+                if (/<\/?(div|section|title|p|h1|h2|h3|ul|ol|li|table|tr|td)\b/i.test(block)) {
+                    return block;
+                }
 
-                return `<p>${trimmed}</p>`;
+                // 3. Обычный текст → <p>
+                return `<p>${block}</p>`;
             })
             .join("\n");
     }
 
+
+
+
     let xhtml = paragraphs(contentNode.innerHTML.trim());
 
     // ---------------------------------------------------------
-    // 🔥 ДОБАВЛЯЕМ РАЗДЕЛИТЕЛИ ДЛЯ ПРИМЕЧАНИЙ
+    //  ДОБАВЛЯЕМ РАЗДЕЛИТЕЛИ ДЛЯ ПРИМЕЧАНИЙ
     // ---------------------------------------------------------
 
     // Примечания перед текстом
