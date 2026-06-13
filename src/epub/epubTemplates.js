@@ -1,6 +1,24 @@
+/**
+ * EPUB HTML-шаблоны
+ *
+ * Генерация:
+ * - титульной страницы (titlepage.xhtml)
+ * - страниц глав (chapter.xhtml)
+ * - HTML-оглавления (toc.xhtml)
+ */
+
 import { escapeXml } from "../utils/escapeXml.js";
 import { textToParagraphs } from "../utils/textToParagraphs.js";
 
+/**
+ * ТИТУЛЬНАЯ СТРАНИЦА EPUB
+ *
+ * Содержит:
+ * - название фанфика
+ * - автора и соавторов
+ * - метаданные (фэндом, рейтинг, теги и т.д.)
+ * - описание и примечания
+ */
 export function buildTitlePage({
                                    title,
                                    mainAuthor,
@@ -30,6 +48,7 @@ export function buildTitlePage({
     <link rel="stylesheet" type="text/css" href="style.css"/>
 </head>
 <body>
+    <!-- === ТИТУЛЬНАЯ СТРАНИЦА === -->
     <div class="title-page">
         <h1>${escapeXml(title)}</h1>
         <h2>${escapeXml(mainAuthor.name)}</h2>
@@ -98,6 +117,11 @@ export function buildTitlePage({
 `.trim();
 }
 
+/**
+ * СТРАНИЦА ГЛАВЫ EPUB
+ *
+ * Каждая глава — отдельный XHTML файл внутри EPUB.
+ */
 export function buildChapterPage(ch) {
     return `
 <?xml version="1.0" encoding="utf-8"?>
@@ -110,12 +134,16 @@ export function buildChapterPage(ch) {
 </head>
 <body>
     <h1>${escapeXml(ch.title)}</h1>
+    
+    <!-- основной контент главы -->
     ${ch.content}
 </body>
 </html>
 `.trim();
 }
 
+
+// HTML-оглавление EPUB (toc.xhtml)
 export function buildTocXhtml(chapters) {
     const tocItems = chapters.map(ch => `
         <li><a href="${escapeXml(ch.file)}">${escapeXml(ch.title)}</a></li>

@@ -1,3 +1,12 @@
+/**
+ * EPUB OPF файл (package document)
+ *
+ * Отвечает за:
+ * - метаданные книги (title, author, language)
+ * - список файлов (manifest)
+ * - порядок чтения (spine)
+ * - идентификацию EPUB-книги
+ */
 import { escapeXml } from "../utils/escapeXml.js";
 
 export function buildOpf({ title, mainAuthor, description, chapters, translators }) {
@@ -14,6 +23,7 @@ export function buildOpf({ title, mainAuthor, description, chapters, translators
         `<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>`
     ].join("\n        ");
 
+    // SPINE — порядок чтения книги
     const spine = [
         `<itemref idref="titlepage"/>`,
         `<itemref idref="toc"/>`,
@@ -27,17 +37,27 @@ export function buildOpf({ title, mainAuthor, description, chapters, translators
     unique-identifier="BookId">
 
         <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+        
+            <!-- === МЕТАДАННЫЕ КНИГИ === -->
             <dc:title>${escapeXml(title)}</dc:title>
+            
             <dc:creator>${escapeXml(
         mainAuthor?.name ||
         translators?.[0]?.name ||
         "UnknownAuthor"
     )}</dc:creator>
+    
             <dc:language>ru</dc:language>
+            
             <dc:identifier id="BookId">urn:uuid:${Date.now()}</dc:identifier>
+            
             <dc:date>${isoDate}</dc:date>
+            
             <dc:subject>fiction</dc:subject>
+            
             <dc:description>${escapeXml(description.slice(0, 500))}</dc:description>
+            
+            <!-- источник оригинальной страницы -->
             <meta name="source" content="${escapeXml(location.href)}"/>
         </metadata>
 

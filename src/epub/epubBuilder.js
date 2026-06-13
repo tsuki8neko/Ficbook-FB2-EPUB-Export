@@ -1,3 +1,16 @@
+/**
+ * Основной модуль сборки EPUB-файла.
+ * Отвечает за полный процесс экспорта фанфика в EPUB:
+ * - загрузка страницы фанфика и списка глав
+ * - сбор метаданных (авторы, фэндом, рейтинг, серия и т.д.)
+ * - загрузка и обработка каждой главы
+ * - обработка сносок (преобразование footnote-ref в EPUB-структуру)
+ * - повторная загрузка неудачных глав
+ * - формирование структуры EPUB через JSZip
+ * - создание всех файлов внутри архива (xhtml, opf, ncx, css, toc)
+ * - генерация и скачивание готового .epub файла
+ */
+
 import { getTitle } from "../core/getTitle.js";
 import { getAuthors } from "../core/getAuthors.js";
 import { getExtraData, getDirectionRatingStatus } from "../core/getMeta.js";
@@ -30,24 +43,29 @@ function cleanHtmlEntities(text) {
 }
 
 
-// EPUB‑сноски
+// === Обработка сносок для EPUB ===
+// - заменяет footnote-ref на ссылки
+// - добавляет <aside> блоки с текстом сносок
 function renderEpubFootnotes(xhtml, footnotes) {
     if (!footnotes || !footnotes.length) return xhtml;
 
     let content = xhtml;
 
+    // ищем ссылку по id сноски
     footnotes.forEach(n => {
         const re = new RegExp(
             `<footnote-ref[^>]*id=["']${n.id}["'][^>]*>([\\s\\S]*?)<\\/footnote-ref>|<footnote-ref[^>]*id=["']${n.id}["'][^>]*\\/?>`,
             "g"
         );
 
+        // заменяем на EPUB ссылку на footnote
         content = content.replace(
             re,
             `<a href="#${n.id}_text" epub:type="noteref" class="footnote-ref">[${n.number}]</a>`
         );
     });
 
+    // формируем блок всех сносок
     const notesHtml = footnotes
         .map(
             n => `
@@ -66,12 +84,11 @@ function renderEpubFootnotes(xhtml, footnotes) {
     return content;
 }
 
-
-
+// === Основная функция сборки EPUB ===
 export async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
 
     // ---------------------------------------------------------
-    // Загружаем страницу фика в iframe, если мы на странице главы
+    // Загружаем страницу содержания в iframe, если мы на странице главы
     // ---------------------------------------------------------
     async function loadFicMainPageIfNeeded() {
         const url = new URL(location.href);
@@ -81,6 +98,7 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
             return document;
         }
 
+        // если открыта глава — грузим главную страницу фанфика
         if (parts.length === 3 && parts[0] === "readfic") {
             const ficId = parts[1];
             const ficUrl = `https://ficbook.net/readfic/${ficId}`;
@@ -109,7 +127,7 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
 
 
     // ---------------------------------------------------------
-    // JSZip loader
+    // Подгрузка JSZip (если нет)
     // ---------------------------------------------------------
     if (!window.JSZip) {
         await new Promise((resolve, reject) => {
@@ -121,6 +139,9 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
         });
     }
 
+    // ---------------------------------------------------------
+    // METADATA
+    // ---------------------------------------------------------
     const title = getTitle();
     const authors = getAuthors();
     if (!authors.length) {
@@ -145,7 +166,7 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
 
 
     // ---------------------------------------------------------
-    // Ищем серию
+    // SERIES
     // ---------------------------------------------------------
     let series = null;
 
@@ -159,7 +180,7 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
 
 
     // ---------------------------------------------------------
-    // Сбор списка глав
+    // CHAPTERS
     // ---------------------------------------------------------
     let rawChapters = Array.from(ficDoc.querySelectorAll(".list-of-fanfic-parts .part-link"))
         .filter(ch => {
@@ -170,10 +191,12 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
             return /^\d+$/.test(last);
         });
 
+    // если глав нет — считаем одну текущую страницу
     if (rawChapters.length === 0) {
         rawChapters = [{ href: location.href }];
     }
 
+    // убираем дубликаты
     let chaptersList = [];
     let seen = new Set();
     for (let ch of rawChapters) {
@@ -191,7 +214,7 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
 
 
     // ---------------------------------------------------------
-    // ПЕРВЫЙ ПРОХОД
+    // FIRST PASS
     // ---------------------------------------------------------
     for (let chapter of chaptersList) {
 
@@ -225,7 +248,7 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
 
 
     // ---------------------------------------------------------
-    // ВТОРОЙ ПРОХОД
+    // SECOND PASS
     // ---------------------------------------------------------
     if (failedChapters.length > 0) {
         console.warn("Повторная загрузка неудачных глав:", failedChapters.length);
@@ -270,12 +293,13 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
 
 
     // ---------------------------------------------------------
-    // СБОР EPUB
+    // СБОРКА EPUB АРХИВА
     // ---------------------------------------------------------
     const zip = new JSZip();
 
     zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
 
+    // структура контейнера
     zip.file("META-INF/container.xml", `<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0"
     xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
@@ -285,8 +309,10 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
     </rootfiles>
 </container>`);
 
+    // стили
     zip.file("OEBPS/style.css", epubCss.trim());
 
+    // титульная страница
     zip.file("OEBPS/titlepage.xhtml", buildTitlePage({
         title,
         mainAuthor,
@@ -307,12 +333,15 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
         series
     }));
 
+    // главы
     chapters.forEach(ch => {
         zip.file(`OEBPS/${ch.file}`, buildChapterPage(ch));
     });
 
+    // оглавление
     zip.file("OEBPS/toc.xhtml", buildTocXhtml(chapters));
 
+    // OPF манифест
     zip.file("OEBPS/content.opf", buildOpf({
         title,
         mainAuthor,
@@ -322,8 +351,10 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
         series
     }));
 
+    // NCX навигация
     zip.file("OEBPS/toc.ncx", buildNcx(title, chapters));
 
+    // === СКАЧИВАНИЕ ===
     const safeAuthorName = mainAuthor?.name || "UnknownAuthor";
     const translatorName = translators[0]?.name || null;
 
