@@ -1,6 +1,7 @@
 // ==UserScript==
-// @name            Ficbook FB2 & EPUB Export
+// @name            Ficbook Exporter — EPUB & FB2 Downloader
 // @name:ru         Скачивание книг с фикбука в формате FB2 & EPUB
+// @name:en         Ficbook Exporter — EPUB & FB2 Downloader
 // @namespace       http://tampermonkey.net/
 // @version         1.0.0
 // @description     Download books from Ficbook in FB2 & EPUB without registration or limits

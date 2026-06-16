@@ -1,7 +1,5 @@
-import { escapeXml } from "./escapeXml.js";
-
 /**
- * Преобразует обычный текст в XHTML-параграфы.
+ * textToParagraphs Преобразует обычный текст в XHTML-параграфы.
  *
  * - разбивает текст по переносам строк
  * - удаляет пустые строки
@@ -10,6 +8,8 @@ import { escapeXml } from "./escapeXml.js";
  *
  * Генерация тела текста.
  */
+
+import { escapeXml } from "./escapeXml.js";
 
 export function textToParagraphs(text) {
     return text.split(/\n+/)

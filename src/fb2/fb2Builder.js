@@ -1,5 +1,5 @@
 /**
- * FB2 builder — основной пайплайн сборки книги.
+ * fb2Builder.js — основной пайплайн сборки книги.
  *
  * Отвечает за:
  * - загрузку глав
@@ -371,7 +371,11 @@ ${allNotes
     const baseName = generateFileBaseName(safeAuthorName, titlePart);
     const fileName = `${baseName}.fb2`;
 
-    let blob = new Blob([fullFb2], { type: "text/xml" });
+    // let blob = new Blob([fullFb2], { type: "text/xml" });
+
+    let blob = new Blob([fullFb2], {
+        type: "application/octet-stream"
+    });
 
     let link = document.createElement("a");
     link.href = URL.createObjectURL(blob);

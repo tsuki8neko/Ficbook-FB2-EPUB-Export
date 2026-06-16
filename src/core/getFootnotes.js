@@ -1,11 +1,9 @@
 /**
+ * getFootnotes. js
  * Извлекает сноски из текста главы и формирует единый список примечаний.
  *
- * На сайте ссылки на сноски находятся в тексте как элементы
- * span.footnote, а сами тексты сносок приходят отдельно в объекте
- * textFootnotes. Функция связывает их между собой, заменяет ссылки
- * на универсальные маркеры и возвращает массив примечаний.
- * Приводит HTML сносок к XHTML-совместимому виду.
+ * span.footnote → превращаем в <footnote-ref>
+ * но БЕЗ outerHTML (чтобы не ломать DOM структуру)
  */
 
 function fixHtml(html) {
@@ -24,11 +22,15 @@ export function extractFootnotes(doc, contentNode, notesMap = {}) {
         const text = notesMap[id];
         if (!text) return;
 
-        // Сквозная нумерация сносок по порядку появления в тексте
         const number = index + 1;
 
-        // Заменяем исходный HTML-элемент универсальным маркером
-        anchor.outerHTML = `<footnote-ref id="${id}" number="${number}"/>`;
+        // ❗ ВАЖНО: НЕ outerHTML
+        // просто превращаем элемент в "placeholder"
+        const ref = doc.createElement("footnote-ref");
+        ref.setAttribute("id", id);
+        ref.setAttribute("number", number);
+
+        anchor.replaceWith(ref);
 
         notes.push({
             id,

@@ -1,6 +1,10 @@
-# Ficbook FB2 / EPUB Export
+# Ficbook Exporter — EPUB & FB2 Downloader (скачивание фанфиков с Ficbook / Фикбук)
 
-Скрипт позволяет скачивать тексты с Ficbook и экспортировать их в форматы **EPUB** и **FB2**.
+## О проекте
+
+Userscript для скачивания фанфиков с Ficbook (Фикбук, ficbook.net) и экспорта в **EPUB** и **FB2**.
+
+Позволяет экспортировать произведения, главы и тексты с Ficbook в файлы для чтения офлайн.
 
 Проект распространяется в виде userscript’а и предназначен для локального использования.
 
@@ -53,17 +57,20 @@
 
 ---
 
-# Ficbook FB2 / EPUB Export (English)
+# Ficbook Exporter — EPUB & FB2 Downloader (userscript for downloading fanfiction from ficbook.net)
 
-This script allows you to download texts from Ficbook and export them to **EPUB** and **FB2** formats.
+## About
 
-The project is distributed as a userscript and is intended for local use.
+Ficbook downloader userscript for exporting fanfiction from ficbook.net.
+
+Downloads stories from Ficbook and converts them into **EPUB** and **FB2** formats for offline reading.
+Supports full chapters, structure and metadata.
 
 ---
 
 ## Features
 
-- export texts from Ficbook
+- export fanfiction stories from Ficbook (ficbook.net)
 - support for **EPUB** and **FB2** formats
 - preservation of the original text structure
 - generation of a table of contents with links
@@ -103,3 +110,11 @@ The project is distributed as a userscript and is intended for local use.
 
 This project is intended for personal and educational use only.  
 Please respect the authors.
+
+---
+
+### Keywords
+
+ficbook downloader, ficbook fanfic downloader, download ficbook stories, скачать фикбук, фикбук скачать фанфик, 
+ficbook epub download, ficbook fb2 download, ficbook export, ficbook userscript, fanfiction downloader, ficbook download epub fb2
+
