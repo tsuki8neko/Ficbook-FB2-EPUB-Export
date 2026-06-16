@@ -1,9 +1,10 @@
 // ==UserScript==
-// @name           Ficbook FB2 & EPUB Export
+// @name           Ficbook Exporter — EPUB & FB2 Downloader
 // @name:ru        Скачивание книг с фикбука в формате FB2 & EPUB
+// @name:en        Ficbook Exporter — EPUB & FB2 Downloader
 // @namespace      http://tampermonkey.net/
-// @version        1.6.2
-// @build          2026-06-13 13:11
+// @version        1.7.0
+// @build          2026-06-16 09:42
 // @description    Download books from Ficbook in FB2 & EPUB without registration or limits
 // @description:ru Скрипт позволяет скачивать книги с Фикбука в форматах FB2 и EPUB без регистрации и ограничений
 // @author         tsuki8neko
@@ -234,13 +235,11 @@ function delay(ms) {
 
 ;// ./src/core/getFootnotes.js
 /**
+ * getFootnotes. js
  * Извлекает сноски из текста главы и формирует единый список примечаний.
  *
- * На сайте ссылки на сноски находятся в тексте как элементы
- * span.footnote, а сами тексты сносок приходят отдельно в объекте
- * textFootnotes. Функция связывает их между собой, заменяет ссылки
- * на универсальные маркеры и возвращает массив примечаний.
- * Приводит HTML сносок к XHTML-совместимому виду.
+ * span.footnote → превращаем в <footnote-ref>
+ * но БЕЗ outerHTML (чтобы не ломать DOM структуру)
  */
 
 function fixHtml(html) {
@@ -259,11 +258,15 @@ function extractFootnotes(doc, contentNode, notesMap = {}) {
         const text = notesMap[id];
         if (!text) return;
 
-        // Сквозная нумерация сносок по порядку появления в тексте
         const number = index + 1;
 
-        // Заменяем исходный HTML-элемент универсальным маркером
-        anchor.outerHTML = `<footnote-ref id="${id}" number="${number}"/>`;
+        // ❗ ВАЖНО: НЕ outerHTML
+        // просто превращаем элемент в "placeholder"
+        const ref = doc.createElement("footnote-ref");
+        ref.setAttribute("id", id);
+        ref.setAttribute("number", number);
+
+        anchor.replaceWith(ref);
 
         notes.push({
             id,
@@ -274,34 +277,31 @@ function extractFootnotes(doc, contentNode, notesMap = {}) {
 
     return notes;
 }
-
 ;// ./src/core/getChapter.js
-
-
-
 /**
- * Загружает и парсит одну главу.
+ * getChapter.js Загружает и парсит одну главу.
  *
- *   Функция возвращает:
- *   title   — заголовок главы
- *   plain   — чистый текст без HTML
- *   xhtml   — очищенный HTML, готовый для FB2/EPUB
- *   footnotes — массив сносок
+ * Возвращает:
+ *  title     — заголовок главы
+ *  plain     — чистый текст
+ *  xhtml     — XHTML для FB2/EPUB
+ *  footnotes — сноски
  */
+
+
+
 
 async function getChapter(url, attempt = 1) {
     const MAX_ATTEMPTS = 7;
 
-    // Небольшая задержка перед запросом
     await delay(500 + Math.random() * 300);
 
     let res;
+
     try {
-        // Пробуем загрузить страницу главы
         res = await fetch(url);
     } catch (e) {
         if (attempt < MAX_ATTEMPTS) {
-            // Если ошибка сети — пробуем снова с увеличением задержки
             await delay(1000 * attempt);
             return getChapter(url, attempt + 1);
         }
@@ -310,7 +310,6 @@ async function getChapter(url, attempt = 1) {
 
     let html = await res.text();
 
-    // Проверяем, не вернул ли сайт пустой/ошибочный HTML
     const looksEmpty =
         !html ||
         html.length < 500 ||
@@ -322,40 +321,35 @@ async function getChapter(url, attempt = 1) {
 
     if (looksEmpty) {
         if (attempt < MAX_ATTEMPTS) {
-            // Увеличиваем задержку и пробуем снова
             await delay(1200 * attempt + Math.random() * 500);
             return getChapter(url, attempt + 1);
         }
         throw new Error(`Не удалось загрузить ${url}: пустой HTML`);
     }
 
-    // --- Парсим HTML ---
-    let doc = new DOMParser().parseFromString(html, "text/html");
+    const doc = new DOMParser().parseFromString(html, "text/html");
 
-    // Заголовок главы
-    let title =
+    const title =
         doc.querySelector(".title-area h2, .part-title h3")?.innerText.trim() ||
         "Глава";
 
-    // Удаляем лишние элементы, которые не должны попадать в текст
     doc.querySelectorAll(".part-date, .part-info").forEach(el => el.remove());
 
-    // Основной контейнер текста главы
     let contentNode =
         doc.querySelector("#part_content") ||
         doc.querySelector("#content.js-part-text, #content.part_text, #content");
 
-    if (contentNode) {
-        // Удаляем рекламу, футеры, кнопки, настройки текста и прочий мусор
-        contentNode.querySelectorAll(
-            ".js-collapsible, .js-text-settings-collapse-button, .ad, .part-footer, .chapter-time, .text_settings, .tags"
-        ).forEach(el => el.remove());
-
-        // Иногда сайт вставляет заголовок внутри текста — убираем
-        contentNode.querySelector("h1, h2, h3")?.remove();
+    if (!contentNode) {
+        throw new Error("Не найден contentNode");
     }
-    // Чистый текст без HTML
-    let plain = contentNode ? contentNode.innerText.trim() : "";
+
+    contentNode.querySelectorAll(
+        ".js-collapsible, .js-text-settings-collapse-button, .ad, .part-footer, .chapter-time, .text_settings, .tags, .fanfic-text-promo"
+    ).forEach(el => el.remove());
+
+    contentNode.querySelectorAll("h1,h2,h3").forEach(el => el.remove());
+
+    const plain = contentNode.innerText.trim();
 
     if (!plain) {
         if (attempt < MAX_ATTEMPTS) {
@@ -365,68 +359,107 @@ async function getChapter(url, attempt = 1) {
         throw new Error(`Не удалось загрузить ${url}: контент пустой`);
     }
 
-    // --- Извлекаем карту сносок из JS-переменной textFootnotes ---
     const footnotesMatch = html.match(/\s+textFootnotes\s*=\s*({.*?})/);
     const notesMap = footnotesMatch ? JSON.parse(footnotesMatch[1]) : {};
 
-    // --- Извлекаем сноски и заменяем ссылки в тексте ---
     const footnotes = extractFootnotes(doc, contentNode, notesMap);
 
-    /**
-     * Превращает двойные переносы в параграфы <p>,
-     * но НЕ оборачивает блоки, которые уже являются HTML‑структурой.
-     */
-    function paragraphs(html) {
-        html = html.replace(/\r/g, "");
-        html = html.replace(/<br\s*\/?>/gi, "\n");
+    // =========================================================
+    // FIXED XHTML
+    // =========================================================
 
-        const rawBlocks = html
-            .split(/\n\s*\n+/) // двойные переносы → блоки
-            .map(b => b.trim())
-            .filter(b => b.length > 0);
+    function normalizeText(text) {
+        return text
+            .replace(/\u00a0/g, " ")
+            .replace(/[ \t]+/g, " ")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
+    }
 
-        return rawBlocks
-            .map(block => {
-                // Если блок начинается с блочного тега — НЕ оборачиваем
-                if (/^<\/?(div|section|title|h1|h2|h3|ul|ol|li|table|tr|td)\b/i.test(block)) {
-                    return block;
+    function buildXhtmlFromDom(node) {
+        const blocks = [];
+
+        const flushText = (text) => {
+            const cleaned = text
+                .replace(/\u00a0/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+
+            if (cleaned) {
+                blocks.push(`<p>${cleaned}</p>`);
+            }
+        };
+
+        const walkInline = (el) => {
+            let text = "";
+
+            const walk = (n) => {
+                if (!n) return;
+
+                if (n.nodeType === Node.TEXT_NODE) {
+                    text += n.textContent;
+                    return;
                 }
 
-                // Если внутри блока есть блочные теги — НЕ оборачиваем
-                if (/<\/?(div|section|title|p|h1|h2|h3|ul|ol|li|table|tr|td)\b/i.test(block)) {
-                    return block;
+                if (n.nodeType !== Node.ELEMENT_NODE) return;
+
+                const tag = n.tagName.toLowerCase();
+
+                if (tag === "br") {
+                    text += "\n";
+                    return;
                 }
 
-                // Обычный текст → оборачиваем в <p>
-                return `<p>${block}</p>`;
-            })
-            .join("\n");
+                if (tag === "footnote-ref") {
+                    text += n.outerHTML;
+                    return;
+                }
+
+                n.childNodes.forEach(walk);
+            };
+
+            el.childNodes.forEach(walk);
+
+            //  РАЗБИЕНИЕ АБЗАЦОВ
+            text.split(/\n+/).forEach(part => {
+                flushText(part);
+            });
+        };
+
+        const walk = (el) => {
+            if (!el || el.nodeType !== Node.ELEMENT_NODE) return;
+
+            const tag = el.tagName.toLowerCase();
+
+            if (el.classList?.contains("fanfic-text-promo")) return;
+
+            //  p = абзац
+            if (tag === "p") {
+                walkInline(el);
+                return;
+            }
+
+            //  div = НЕ всегда абзац, но часто контейнер главы
+            if (tag === "div") {
+                const hasParagraphs = el.querySelector("p");
+
+                if (hasParagraphs) {
+                    el.querySelectorAll("p").forEach(walk);
+                } else {
+                    walkInline(el);
+                }
+                return;
+            }
+
+            el.childNodes.forEach(walk);
+        };
+
+        node.childNodes.forEach(walk);
+
+        return blocks.join("\n");
     }
 
-    // XHTML‑версия текста главы
-    let xhtml = paragraphs(contentNode.innerHTML.trim());
-
-    // ---------------------------------------------------------
-    //  ДОБАВЛЯЕМ РАЗДЕЛИТЕЛИ ДЛЯ ПРИМЕЧАНИЙ
-    // ---------------------------------------------------------
-
-    // Примечания перед текстом
-    const topNotes = doc.querySelector(".part-comment-top");
-    if (topNotes) {
-        xhtml = xhtml.replace(
-            /(<div class="part-comment-top"[\s\S]*?<\/div>)/,
-            `$1\n<p>--------------</p>`
-        );
-    }
-
-    // Примечания после текста
-    const bottomNotes = doc.querySelector(".part-comment-bottom");
-    if (bottomNotes) {
-        xhtml = xhtml.replace(
-            /(<div class="part-comment-bottom"[\s\S]*?<\/div>)/,
-            `<p>--------------</p>\n$1`
-        );
-    }
+    const xhtml = buildXhtmlFromDom(contentNode);
 
     return {
         title,
@@ -435,10 +468,9 @@ async function getChapter(url, attempt = 1) {
         footnotes
     };
 }
-
 ;// ./src/utils/generateFileName.js
 /**
- * Формирует базовое имя файла для экспорта.
+ * generateFileName.js Формирует базовое имя файла для экспорта.
  *
  * Итоговый формат:
  * author_-_title
@@ -479,10 +511,8 @@ function escapeXml(str) {
 }
 
 ;// ./src/utils/textToParagraphs.js
-
-
 /**
- * Преобразует обычный текст в XHTML-параграфы.
+ * textToParagraphs Преобразует обычный текст в XHTML-параграфы.
  *
  * - разбивает текст по переносам строк
  * - удаляет пустые строки
@@ -491,6 +521,8 @@ function escapeXml(str) {
  *
  * Генерация тела текста.
  */
+
+
 
 function textToParagraphs(text) {
     return text.split(/\n+/)
@@ -502,7 +534,7 @@ function textToParagraphs(text) {
 
 ;// ./src/fb2/fb2Header.js
 /**
- * Формирует FB2 заголовок на основе метаданных произведения
+ * fb2Header.js Формирует FB2 заголовок на основе метаданных произведения
  *
  * Сюда входят:
  * - информация об авторах (основной, соавторы, переводчики и т.д.)
@@ -536,6 +568,7 @@ function buildFb2Header({
                                    pairings,
                                    series
                                }) {
+
     return `<?xml version="1.0" encoding="utf-8"?>
 <FictionBook 
     xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" 
@@ -549,7 +582,6 @@ function buildFb2Header({
     <description>
         <title-info>
 
-            <!-- === ОСНОВНОЙ АВТОР === -->
             <author>
                 <username>${escapeXml(mainAuthor.name)}</username>
                 <first-name>${escapeXml(mainAuthor.name)}</first-name>
@@ -559,8 +591,7 @@ function buildFb2Header({
             <book-title>${escapeXml(title)}</book-title>
 
             <annotation>
-                
-                <!-- === ШАПКА === -->
+
                 <p><strong>Ссылка на работу:</strong> ${escapeXml(location.href)}</p>
                 <p><strong>Направленность:</strong> ${escapeXml(direction)}</p>
 
@@ -626,21 +657,18 @@ function buildFb2Header({
 
                 <p></p>
 
-                <!-- === ПРИМЕЧАНИЯ АВТОРА === -->
                 <p><strong>Описание:</strong></p>
-                ${textToParagraphs(description)}
+                ${textToParagraphs(description || "")}
 
                 <p></p>
 
-                <!-- === ПРИМЕЧАНИЯ АВТОРА === -->
                 <p><strong>Примечания:</strong></p>
-                ${textToParagraphs(notes)}
+                ${textToParagraphs(notes || "")}
 
                 <p><strong>Публикация на других ресурсах:</strong> ${escapeXml(otherPublication || "")}</p>
 
             </annotation>
-            
-            <!-- === FB2 СЛУЖЕБНЫЕ ДАННЫЕ === -->
+
             <date value="${new Date().toISOString().split("T")[0]}">${new Date().toLocaleDateString()}</date>
             <lang>ru</lang>
 
@@ -679,7 +707,7 @@ function buildFb2Toc(tocEntries) {
 
 ;// ./src/fb2/fb2Body.js
 /**
- * Формирует тело FB2-книги.
+ * fb2Body Формирует тело FB2-книги.
  * Вставляется уже готовая разметка глав (fb2Chapters),
  * которая была собрана ранее из парсинга текста.
  */
@@ -694,7 +722,7 @@ ${fb2Chapters}
 
 ;// ./src/fb2/fb2Builder.js
 /**
- * FB2 builder — основной пайплайн сборки книги.
+ * fb2Builder.js — основной пайплайн сборки книги.
  *
  * Отвечает за:
  * - загрузку глав
@@ -1066,7 +1094,11 @@ ${allNotes
     const baseName = generateFileBaseName(safeAuthorName, titlePart);
     const fileName = `${baseName}.fb2`;
 
-    let blob = new Blob([fullFb2], { type: "text/xml" });
+    // let blob = new Blob([fullFb2], { type: "text/xml" });
+
+    let blob = new Blob([fullFb2], {
+        type: "application/octet-stream"
+    });
 
     let link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -1121,9 +1153,27 @@ strong {
 `;
 
 ;// ./src/epub/epubTemplates.js
+/**
+ * EPUB HTML-шаблоны
+ *
+ * Генерация:
+ * - титульной страницы (titlepage.xhtml)
+ * - страниц глав (chapter.xhtml)
+ * - HTML-оглавления (toc.xhtml)
+ */
 
 
 
+
+/**
+ * ТИТУЛЬНАЯ СТРАНИЦА EPUB
+ *
+ * Содержит:
+ * - название фанфика
+ * - автора и соавторов
+ * - метаданные (фэндом, рейтинг, теги и т.д.)
+ * - описание и примечания
+ */
 function buildTitlePage({
                                    title,
                                    mainAuthor,
@@ -1153,6 +1203,7 @@ function buildTitlePage({
     <link rel="stylesheet" type="text/css" href="style.css"/>
 </head>
 <body>
+    <!-- === ТИТУЛЬНАЯ СТРАНИЦА === -->
     <div class="title-page">
         <h1>${escapeXml(title)}</h1>
         <h2>${escapeXml(mainAuthor.name)}</h2>
@@ -1221,6 +1272,11 @@ function buildTitlePage({
 `.trim();
 }
 
+/**
+ * СТРАНИЦА ГЛАВЫ EPUB
+ *
+ * Каждая глава — отдельный XHTML файл внутри EPUB.
+ */
 function buildChapterPage(ch) {
     return `
 <?xml version="1.0" encoding="utf-8"?>
@@ -1233,12 +1289,16 @@ function buildChapterPage(ch) {
 </head>
 <body>
     <h1>${escapeXml(ch.title)}</h1>
+    
+    <!-- основной контент главы -->
     ${ch.content}
 </body>
 </html>
 `.trim();
 }
 
+
+// HTML-оглавление EPUB (toc.xhtml)
 function buildTocXhtml(chapters) {
     const tocItems = chapters.map(ch => `
         <li><a href="${escapeXml(ch.file)}">${escapeXml(ch.title)}</a></li>
@@ -1264,6 +1324,15 @@ function buildTocXhtml(chapters) {
 }
 
 ;// ./src/epub/epubOpf.js
+/**
+ * EPUB OPF файл (package document)
+ *
+ * Отвечает за:
+ * - метаданные книги (title, author, language)
+ * - список файлов (manifest)
+ * - порядок чтения (spine)
+ * - идентификацию EPUB-книги
+ */
 
 
 function buildOpf({ title, mainAuthor, description, chapters, translators }) {
@@ -1280,6 +1349,7 @@ function buildOpf({ title, mainAuthor, description, chapters, translators }) {
         `<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>`
     ].join("\n        ");
 
+    // SPINE — порядок чтения книги
     const spine = [
         `<itemref idref="titlepage"/>`,
         `<itemref idref="toc"/>`,
@@ -1293,17 +1363,27 @@ function buildOpf({ title, mainAuthor, description, chapters, translators }) {
     unique-identifier="BookId">
 
         <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+        
+            <!-- === МЕТАДАННЫЕ КНИГИ === -->
             <dc:title>${escapeXml(title)}</dc:title>
+            
             <dc:creator>${escapeXml(
         mainAuthor?.name ||
         translators?.[0]?.name ||
         "UnknownAuthor"
     )}</dc:creator>
+    
             <dc:language>ru</dc:language>
+            
             <dc:identifier id="BookId">urn:uuid:${Date.now()}</dc:identifier>
+            
             <dc:date>${isoDate}</dc:date>
+            
             <dc:subject>fiction</dc:subject>
+            
             <dc:description>${escapeXml(description.slice(0, 500))}</dc:description>
+            
+            <!-- источник оригинальной страницы -->
             <meta name="source" content="${escapeXml(location.href)}"/>
         </metadata>
 
@@ -1320,9 +1400,20 @@ function buildOpf({ title, mainAuthor, description, chapters, translators }) {
 }
 
 ;// ./src/epub/epubNcx.js
+/**
+ * EPUB 2.0 навигационный файл (NCX)
+ *
+ * Отвечает за:
+ * - структуру оглавления EPUB
+ * - навигацию между главами
+ * - совместимость со старыми ридерами
+ */
+
 
 
 function buildNcx(title, chapters) {
+
+    // Генерация навигационных пунктов для каждой главы
     const navPoints = chapters.map((ch, i) => `
         <navPoint id="navPoint-${i + 2}" playOrder="${i + 2}">
             <navLabel><text>${escapeXml(ch.title)}</text></navLabel>
@@ -1335,6 +1426,7 @@ function buildNcx(title, chapters) {
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"
     version="2005-1">
     <head>
+        <!-- уникальный идентификатор книги -->
         <meta name="dtb:uid" content="urn:uuid:${Date.now()}"/>
         <meta name="dtb:depth" content="1"/>
         <meta name="dtb:totalPageCount" content="0"/>
@@ -1344,10 +1436,12 @@ function buildNcx(title, chapters) {
         <text>${escapeXml(title)}</text>
     </docTitle>
     <navMap>
+        <!-- пункт оглавления -->
         <navPoint id="navPoint-1" playOrder="1">
             <navLabel><text>Оглавление</text></navLabel>
             <content src="toc.xhtml"/>
         </navPoint>
+        <!-- главы -->
         ${navPoints}
     </navMap>
 </ncx>
@@ -1355,6 +1449,19 @@ function buildNcx(title, chapters) {
 }
 
 ;// ./src/epub/epubBuilder.js
+/**
+ * Основной модуль сборки EPUB-файла.
+ * Отвечает за полный процесс экспорта фанфика в EPUB:
+ * - загрузка страницы фанфика и списка глав
+ * - сбор метаданных (авторы, фэндом, рейтинг, серия и т.д.)
+ * - загрузка и обработка каждой главы
+ * - обработка сносок (преобразование footnote-ref в EPUB-структуру)
+ * - повторная загрузка неудачных глав
+ * - формирование структуры EPUB через JSZip
+ * - создание всех файлов внутри архива (xhtml, opf, ncx, css, toc)
+ * - генерация и скачивание готового .epub файла
+ */
+
 
 
 
@@ -1387,24 +1494,29 @@ function cleanHtmlEntities(text) {
 }
 
 
-// EPUB‑сноски
+// === Обработка сносок для EPUB ===
+// - заменяет footnote-ref на ссылки
+// - добавляет <aside> блоки с текстом сносок
 function renderEpubFootnotes(xhtml, footnotes) {
     if (!footnotes || !footnotes.length) return xhtml;
 
     let content = xhtml;
 
+    // ищем ссылку по id сноски
     footnotes.forEach(n => {
         const re = new RegExp(
             `<footnote-ref[^>]*id=["']${n.id}["'][^>]*>([\\s\\S]*?)<\\/footnote-ref>|<footnote-ref[^>]*id=["']${n.id}["'][^>]*\\/?>`,
             "g"
         );
 
+        // заменяем на EPUB ссылку на footnote
         content = content.replace(
             re,
             `<a href="#${n.id}_text" epub:type="noteref" class="footnote-ref">[${n.number}]</a>`
         );
     });
 
+    // формируем блок всех сносок
     const notesHtml = footnotes
         .map(
             n => `
@@ -1423,12 +1535,11 @@ function renderEpubFootnotes(xhtml, footnotes) {
     return content;
 }
 
-
-
+// === Основная функция сборки EPUB ===
 async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
 
     // ---------------------------------------------------------
-    // Загружаем страницу фика в iframe, если мы на странице главы
+    // Загружаем страницу содержания в iframe, если мы на странице главы
     // ---------------------------------------------------------
     async function loadFicMainPageIfNeeded() {
         const url = new URL(location.href);
@@ -1438,6 +1549,7 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
             return document;
         }
 
+        // если открыта глава — грузим главную страницу фанфика
         if (parts.length === 3 && parts[0] === "readfic") {
             const ficId = parts[1];
             const ficUrl = `https://ficbook.net/readfic/${ficId}`;
@@ -1466,7 +1578,7 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
 
 
     // ---------------------------------------------------------
-    // JSZip loader
+    // Подгрузка JSZip (если нет)
     // ---------------------------------------------------------
     if (!window.JSZip) {
         await new Promise((resolve, reject) => {
@@ -1478,6 +1590,9 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
         });
     }
 
+    // ---------------------------------------------------------
+    // METADATA
+    // ---------------------------------------------------------
     const title = getTitle();
     const authors = getAuthors();
     if (!authors.length) {
@@ -1502,7 +1617,7 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
 
 
     // ---------------------------------------------------------
-    // Ищем серию
+    // SERIES
     // ---------------------------------------------------------
     let series = null;
 
@@ -1516,7 +1631,7 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
 
 
     // ---------------------------------------------------------
-    // Сбор списка глав
+    // CHAPTERS
     // ---------------------------------------------------------
     let rawChapters = Array.from(ficDoc.querySelectorAll(".list-of-fanfic-parts .part-link"))
         .filter(ch => {
@@ -1527,10 +1642,12 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
             return /^\d+$/.test(last);
         });
 
+    // если глав нет — считаем одну текущую страницу
     if (rawChapters.length === 0) {
         rawChapters = [{ href: location.href }];
     }
 
+    // убираем дубликаты
     let chaptersList = [];
     let seen = new Set();
     for (let ch of rawChapters) {
@@ -1548,7 +1665,7 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
 
 
     // ---------------------------------------------------------
-    // ПЕРВЫЙ ПРОХОД
+    // FIRST PASS
     // ---------------------------------------------------------
     for (let chapter of chaptersList) {
 
@@ -1582,7 +1699,7 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
 
 
     // ---------------------------------------------------------
-    // ВТОРОЙ ПРОХОД
+    // SECOND PASS
     // ---------------------------------------------------------
     if (failedChapters.length > 0) {
         console.warn("Повторная загрузка неудачных глав:", failedChapters.length);
@@ -1627,12 +1744,13 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
 
 
     // ---------------------------------------------------------
-    // СБОР EPUB
+    // СБОРКА EPUB АРХИВА
     // ---------------------------------------------------------
     const zip = new JSZip();
 
     zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
 
+    // структура контейнера
     zip.file("META-INF/container.xml", `<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0"
     xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
@@ -1642,8 +1760,10 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
     </rootfiles>
 </container>`);
 
+    // стили
     zip.file("OEBPS/style.css", epubCss.trim());
 
+    // титульная страница
     zip.file("OEBPS/titlepage.xhtml", buildTitlePage({
         title,
         mainAuthor,
@@ -1664,12 +1784,15 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
         series
     }));
 
+    // главы
     chapters.forEach(ch => {
         zip.file(`OEBPS/${ch.file}`, buildChapterPage(ch));
     });
 
+    // оглавление
     zip.file("OEBPS/toc.xhtml", buildTocXhtml(chapters));
 
+    // OPF манифест
     zip.file("OEBPS/content.opf", buildOpf({
         title,
         mainAuthor,
@@ -1679,8 +1802,10 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
         series
     }));
 
+    // NCX навигация
     zip.file("OEBPS/toc.ncx", buildNcx(title, chapters));
 
+    // === СКАЧИВАНИЕ ===
     const safeAuthorName = mainAuthor?.name || "UnknownAuthor";
     const translatorName = translators[0]?.name || null;
 
