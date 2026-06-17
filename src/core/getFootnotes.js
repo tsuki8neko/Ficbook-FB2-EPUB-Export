@@ -24,7 +24,7 @@ export function extractFootnotes(doc, contentNode, notesMap = {}) {
 
         const number = index + 1;
 
-        // ❗ ВАЖНО: НЕ outerHTML
+        // НЕ outerHTML
         // просто превращаем элемент в "placeholder"
         const ref = doc.createElement("footnote-ref");
         ref.setAttribute("id", id);

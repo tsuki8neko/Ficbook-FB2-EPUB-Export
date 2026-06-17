@@ -5,6 +5,7 @@
 // @namespace       http://tampermonkey.net/
 // @version         1.0.0
 // @description     Download books from Ficbook in FB2 & EPUB without registration or limits
+// @description:en  Download books from Ficbook in FB2 & EPUB without registration or limits
 // @description:ru  Скрипт позволяет скачивать книги с Фикбука в форматах FB2 и EPUB без регистрации и ограничений
 // @author          tsuki8neko
 // @match           https://ficbook.net/readfic/*

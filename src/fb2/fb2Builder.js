@@ -1,15 +1,3 @@
-/**
- * fb2Builder.js — основной пайплайн сборки книги.
- *
- * Отвечает за:
- * - загрузку глав
- * - сбор метаданных (авторы, фэндом, рейтинг и т.д.)
- * - обработку сносок
- * - формирование FB2 (header + toc + body + notes)
- * - повторные попытки загрузки глав
- * - скачивание готового файла
- */
-
 import { getTitle } from "../core/getTitle.js";
 import { getAuthors } from "../core/getAuthors.js";
 import { getExtraData, getDirectionRatingStatus } from "../core/getMeta.js";
@@ -21,6 +9,19 @@ import { buildFb2Header } from "./fb2Header.js";
 import { buildFb2Toc } from "./fb2Toc.js";
 import { buildFb2Body } from "./fb2Body.js";
 import { getOriginalAuthor, getOriginalWork } from "../core/getMeta.js";
+
+
+/**
+ * fb2Builder.js — основной пайплайн сборки книги.
+ *
+ * Отвечает за:
+ * - загрузку глав
+ * - сбор метаданных (авторы, фэндом, рейтинг и т.д.)
+ * - обработку сносок
+ * - формирование FB2 (header + toc + body + notes)
+ * - повторные попытки загрузки глав
+ * - скачивание готового файла
+ */
 
 
 // Приведение HTML-сущностей к FB2-совместимому виду
