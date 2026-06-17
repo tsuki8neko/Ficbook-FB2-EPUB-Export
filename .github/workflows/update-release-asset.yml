@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag of the release to update (example: 1.7.0)"
+        description: "Tag of the release to update (example: 1.0.0)"
         required: true
-        default: "1.7.0"
+        default: "1.0.0"
 
 jobs:
   update-asset:
