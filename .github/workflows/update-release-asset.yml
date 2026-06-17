@@ -1,0 +1,60 @@
+name: Update Release Asset
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag of the release to update (example: 1.7.0)"
+        required: true
+        default: "1.7.0"
+
+jobs:
+  update-asset:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build userscript
+        run: npm run build
+
+      # Получаем релиз по введённому тегу
+      - name: Get release by tag
+        id: get_release
+        uses: joutvhu/get-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Удаляем старый ассет
+      - name: Delete old asset
+        if: ${{ steps.get_release.outputs.assets != '' }}
+        run: |
+          assets=$(echo '${{ steps.get_release.outputs.assets }}' | jq -r '.[].id')
+          for asset in $assets; do
+            echo "Deleting asset $asset"
+            curl -X DELETE \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              https://api.github.com/repos/${{ github.repository }}/releases/assets/$asset
+          done
+
+      # Загружаем новый ассет
+      - name: Upload new asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.get_release.outputs.upload_url }}
+          asset_path: ./dist/ficbook-export.user.js
+          asset_name: ficbook-export.user.js
+          asset_content_type: application/javascript
