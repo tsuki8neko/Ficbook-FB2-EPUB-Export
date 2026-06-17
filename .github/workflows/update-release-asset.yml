@@ -4,13 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        type: choice
-        description: "Select release tag to update"
+        description: "Tag of the release to update (example: 1.7.0)"
         required: true
-        options:
-          - 1.7.0
-          - 1.6.0
-          - 1.5.0
 
 jobs:
   update-asset:
@@ -31,25 +26,40 @@ jobs:
       - name: Build userscript
         run: npm run build
 
+      # Проверяем, что релиз существует
       - name: Get release by tag
         id: get_release
-        uses: joutvhu/get-release@v1
-        with:
-          tag_name: ${{ github.event.inputs.tag }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Fetching release for tag: ${{ github.event.inputs.tag }}"
+          release=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.inputs.tag }})
 
-      - name: Delete old asset
+          echo "$release" > release.json
+
+          upload_url=$(jq -r '.upload_url // empty' release.json)
+          assets=$(jq -r '.assets // empty' release.json)
+
+          if [ -z "$upload_url" ]; then
+            echo "ERROR: Release with tag '${{ github.event.inputs.tag }}' not found."
+            exit 1
+          fi
+
+          echo "upload_url=$upload_url" >> $GITHUB_OUTPUT
+          echo "assets=$assets" >> $GITHUB_OUTPUT
+
+      # Удаляем старые ассеты
+      - name: Delete old assets
         if: ${{ steps.get_release.outputs.assets != '' }}
         run: |
-          assets=$(echo '${{ steps.get_release.outputs.assets }}' | jq -r '.[].id')
-          for asset in $assets; do
-            echo "Deleting asset $asset"
+          echo '${{ steps.get_release.outputs.assets }}' | jq -r '.[].id' | while read id; do
+            echo "Deleting asset $id"
             curl -X DELETE \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              https://api.github.com/repos/${{ github.repository }}/releases/assets/$asset
+              https://api.github.com/repos/${{ github.repository }}/releases/assets/$id
           done
 
+      # Загружаем новый ассет
       - name: Upload new asset
         uses: actions/upload-release-asset@v1
         env:
