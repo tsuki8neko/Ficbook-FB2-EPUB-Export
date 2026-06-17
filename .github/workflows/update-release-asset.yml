@@ -12,8 +12,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -26,12 +28,24 @@ jobs:
       - name: Build userscript
         run: npm run build
 
+      # Коммитим обновлённый файл в репозиторий
+      - name: Commit updated userscript
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          if git diff --quiet ficbook-export.user.js; then
+            echo "No changes in userscript, skipping commit"
+          else
+            git add ficbook-export.user.js
+            git commit -m "Update userscript via update-release-asset workflow"
+            git push
+          fi
+
       # Получаем релиз по тегу
       - name: Get release by tag
         id: get_release
         run: |
-          echo "Fetching release for tag: ${{ github.event.inputs.tag }}"
-
           release=$(curl -s \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.inputs.tag }})
@@ -41,7 +55,6 @@ jobs:
             echo "ERROR: Release not found for tag '${{ github.event.inputs.tag }}'"
             exit 1
           fi
-
           echo "upload_url=$upload_url" >> $GITHUB_OUTPUT
 
           asset_ids=$(echo "$release" | jq -r '.assets[].id')
