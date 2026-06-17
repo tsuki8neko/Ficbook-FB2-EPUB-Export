@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag of the release to update"
+        description: "Tag of the release to update (example: v1.0.0)"
         required: true
 
 permissions:
@@ -15,79 +15,35 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-          ref: master   # <-- ВАЖНО! Укажи свою ветку
 
-      - name: Debug root folder BEFORE build
-        run: ls -la .
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install dependencies
-        run: npm install
+      - run: npm install
+      - run: npm run build
 
-      - name: Build userscript
-        run: npm run build
+      # Копируем собранный файл в корень
+      - name: Copy built userscript to root
+        run: cp build/ficbook-export.user.js ficbook-export.user.js
 
-      - name: Debug root folder AFTER build
-        run: ls -la .
-
-      # Коммитим новый файл в репозиторий
+      # Коммитим обновлённый файл
       - name: Commit updated userscript
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-
-          echo "Git diff:"
-          git diff ficbook-export.user.js || true
-
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add ficbook-export.user.js
-          git commit -m "Update userscript via update-release-asset workflow" || echo "No changes to commit"
-          git push
-
-      # Получаем релиз по тегу
-      - name: Get release by tag
-        id: get_release
-        run: |
-          release=$(curl -s \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.inputs.tag }})
-
-          upload_url=$(echo "$release" | jq -r '.upload_url')
-          if [ "$upload_url" = "null" ] || [ -z "$upload_url" ]; then
-            echo "ERROR: Release not found for tag '${{ github.event.inputs.tag }}'"
-            exit 1
-          fi
-          echo "upload_url=$upload_url" >> $GITHUB_OUTPUT
-
-          asset_ids=$(echo "$release" | jq -r '.assets[].id')
-          echo "asset_ids=$asset_ids" >> $GITHUB_OUTPUT
-
-      # Удаляем старые ассеты
-      - name: Delete old assets
-        if: ${{ steps.get_release.outputs.asset_ids != '' }}
-        run: |
-          for id in ${{ steps.get_release.outputs.asset_ids }}; do
-            echo "Deleting asset $id"
-            curl -X DELETE \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              https://api.github.com/repos/${{ github.repository }}/releases/assets/$id
-          done
-
-      # Загружаем новый ассет
-      - name: Upload new asset
-        uses: actions/upload-release-asset@v1
+          git commit -m "Update userscript for release ${{ github.event.inputs.tag }}" || echo "No changes to commit"
+          git push origin master
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.get_release.outputs.upload_url }}
-          asset_path: ./ficbook-export.user.js
-          asset_name: ficbook-export.user.js
-          asset_content_type: application/javascript
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Обновляем ассет в релизе
+      - name: Upload file to release
+        run: |
+          gh release upload "${{ github.event.inputs.tag }}" build/ficbook-export.user.js --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
