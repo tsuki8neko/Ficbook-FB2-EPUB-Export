@@ -1,11 +1,5 @@
 name: CI
 
-#on:
-#  workflow_dispatch:
-#  pull_request:
-#    branches:
-#      - master
-
 on:
   workflow_dispatch:
 
@@ -27,3 +21,24 @@ jobs:
 
       - name: Build userscript
         run: npm run build
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.run_number }}
+          release_name: Release ${{ github.run_number }}
+          draft: false
+          prerelease: false
+
+      - name: Upload userscript
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/ficbook-export.user.js
+          asset_name: ficbook-export.user.js
+          asset_content_type: application/javascript
