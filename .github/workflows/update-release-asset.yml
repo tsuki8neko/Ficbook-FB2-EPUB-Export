@@ -4,9 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag of the release to update (example: 1.0.0)"
+        type: choice
+        description: "Select release tag to update"
         required: true
-        default: "1.0.0"
+        options:
+          - 1.7.0
+          - 1.6.0
+          - 1.5.0
 
 jobs:
   update-asset:
@@ -27,7 +31,6 @@ jobs:
       - name: Build userscript
         run: npm run build
 
-      # Получаем релиз по введённому тегу
       - name: Get release by tag
         id: get_release
         uses: joutvhu/get-release@v1
@@ -36,7 +39,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Удаляем старый ассет
       - name: Delete old asset
         if: ${{ steps.get_release.outputs.assets != '' }}
         run: |
@@ -48,7 +50,6 @@ jobs:
               https://api.github.com/repos/${{ github.repository }}/releases/assets/$asset
           done
 
-      # Загружаем новый ассет
       - name: Upload new asset
         uses: actions/upload-release-asset@v1
         env:
