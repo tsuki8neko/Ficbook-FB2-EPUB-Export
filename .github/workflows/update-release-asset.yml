@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag of the release to update (example: 1.7.0)"
+        description: "Tag of the release to update (example: v1.0.0)"
         required: true
 
 jobs:
@@ -26,33 +26,32 @@ jobs:
       - name: Build userscript
         run: npm run build
 
-      # Проверяем, что релиз существует
+      # Получаем релиз по тегу
       - name: Get release by tag
         id: get_release
         run: |
           echo "Fetching release for tag: ${{ github.event.inputs.tag }}"
+
           release=$(curl -s \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.inputs.tag }})
 
-          echo "$release" > release.json
-
-          upload_url=$(jq -r '.upload_url // empty' release.json)
-          assets=$(jq -r '.assets // empty' release.json)
-
-          if [ -z "$upload_url" ]; then
-            echo "ERROR: Release with tag '${{ github.event.inputs.tag }}' not found."
+          upload_url=$(echo "$release" | jq -r '.upload_url')
+          if [ "$upload_url" = "null" ] || [ -z "$upload_url" ]; then
+            echo "ERROR: Release not found for tag '${{ github.event.inputs.tag }}'"
             exit 1
           fi
 
           echo "upload_url=$upload_url" >> $GITHUB_OUTPUT
-          echo "assets=$assets" >> $GITHUB_OUTPUT
+
+          asset_ids=$(echo "$release" | jq -r '.assets[].id')
+          echo "asset_ids=$asset_ids" >> $GITHUB_OUTPUT
 
       # Удаляем старые ассеты
       - name: Delete old assets
-        if: ${{ steps.get_release.outputs.assets != '' }}
+        if: ${{ steps.get_release.outputs.asset_ids != '' }}
         run: |
-          echo '${{ steps.get_release.outputs.assets }}' | jq -r '.[].id' | while read id; do
+          for id in ${{ steps.get_release.outputs.asset_ids }}; do
             echo "Deleting asset $id"
             curl -X DELETE \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
