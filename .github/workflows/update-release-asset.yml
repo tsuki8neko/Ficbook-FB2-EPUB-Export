@@ -4,8 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag of the release to update (example: v1.0.0)"
+        description: "Tag of the release to update"
         required: true
+
+permissions:
+  contents: write
 
 jobs:
   update-asset:
@@ -16,6 +19,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          ref: master   # <-- ВАЖНО! Укажи свою ветку
+
+      - name: Debug root folder BEFORE build
+        run: ls -la .
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -28,19 +36,21 @@ jobs:
       - name: Build userscript
         run: npm run build
 
-      # Коммитим обновлённый файл в репозиторий
+      - name: Debug root folder AFTER build
+        run: ls -la .
+
+      # Коммитим новый файл в репозиторий
       - name: Commit updated userscript
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
-          if git diff --quiet ficbook-export.user.js; then
-            echo "No changes in userscript, skipping commit"
-          else
-            git add ficbook-export.user.js
-            git commit -m "Update userscript via update-release-asset workflow"
-            git push
-          fi
+          echo "Git diff:"
+          git diff ficbook-export.user.js || true
+
+          git add ficbook-export.user.js
+          git commit -m "Update userscript via update-release-asset workflow" || echo "No changes to commit"
+          git push
 
       # Получаем релиз по тегу
       - name: Get release by tag
