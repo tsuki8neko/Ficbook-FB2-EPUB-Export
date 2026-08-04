@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name           Ficbook Exporter — FB2, EPUB, TXT & PDF
+// @name           Ficbook Exporter — FB2, EPUB, TXT and PDF
 // @name:ru        Скачивание книг с Фикбука в FB2, EPUB, TXT и PDF
-// @name:en        Ficbook Exporter — FB2, EPUB, TXT & PDF
+// @name:en        Ficbook Exporter — FB2, EPUB, TXT and PDF
 // @namespace      http://tampermonkey.net/
-// @version        1.8.0
-// @build          2026-08-04 06:16
+// @version        1.8.1
+// @build          2026-08-04 06:28
 // @description    Export Ficbook works to FB2, EPUB, TXT and PDF with embedded covers
 // @description:en Export Ficbook works to FB2, EPUB, TXT and PDF with embedded covers
 // @description:ru Экспорт произведений Фикбука в FB2, EPUB, TXT и PDF со встроенными обложками
@@ -64,120 +64,279 @@ function getAuthors(doc = document) {
 ;// ./src/core/getMeta.js
 function getMeta_absoluteUrl(value) {
     if (!value) return "";
-    const base = location.origin && location.origin !== "null" ? location.origin : "https://ficbook.net";
-    try { return new URL(value, base).href; } catch (_) { return value; }
+
+    const base =
+        location.origin && location.origin !== "null"
+            ? location.origin
+            : "https://ficbook.net";
+
+    try {
+        return new URL(value, base).href;
+    } catch (_) {
+        return value;
+    }
+}
+
+function uniqueValues(values) {
+    return [...new Set(values.filter(Boolean))];
+}
+
+function getTagSections(doc) {
+    const blocks = Array.from(
+        doc.querySelectorAll(
+            ".description .mb-10, " +
+            ".fanfic-hat-body .mb-10"
+        )
+    );
+
+    return blocks
+        .map(block => {
+            const tagsContainer = block.querySelector(".tags");
+            if (!tagsContainer) return null;
+
+            const labelNode = block.querySelector("strong");
+            const label = labelNode?.textContent
+                ?.replace(/\s+/g, " ")
+                .trim()
+                .replace(/[:：]\s*$/, "");
+
+            if (!label) return null;
+
+            const sectionTags = uniqueValues(
+                Array.from(
+                    tagsContainer.querySelectorAll("a[href*='/tags/']")
+                ).map(link =>
+                    link.textContent
+                        .replace(/\s+/g, " ")
+                        .trim()
+                )
+            );
+
+            if (!sectionTags.length) return null;
+
+            return {
+                label,
+                tags: sectionTags
+            };
+        })
+        .filter(Boolean);
 }
 
 function getExtraData(doc = document) {
-    const findBlock = (label) =>
-        Array.from(doc.querySelectorAll(".description .mb-10, .fanfic-hat-body .mb-10"))
-            .find(node => node.querySelector("strong")?.textContent?.includes(label));
+    const findBlock = label =>
+        Array.from(
+            doc.querySelectorAll(
+                ".description .mb-10, " +
+                ".fanfic-hat-body .mb-10"
+            )
+        ).find(node =>
+            node.querySelector("strong")
+                ?.textContent
+                ?.includes(label)
+        );
 
     const fandomBlock = findBlock("Фэндом:");
+
     const fandom = fandomBlock
-        ? Array.from(fandomBlock.querySelectorAll("a"))
-            .map(a => a.textContent.trim())
-            .filter(Boolean)
-            .join(", ")
+        ? uniqueValues(
+            Array.from(fandomBlock.querySelectorAll("a"))
+                .map(link =>
+                    link.textContent
+                        .replace(/\s+/g, " ")
+                        .trim()
+                )
+        ).join(", ")
         : "";
 
     const sizeBlock = findBlock("Размер:");
     const sizeText = sizeBlock?.textContent || "";
-    const sizeMatch = sizeText.match(/(\d[\d\s]*\d|\d)\s*слов/i);
-    const size = sizeMatch ? sizeMatch[1].replace(/\s+/g, " ") : "";
+    const sizeMatch = sizeText.match(/(\d[\d\s\u00a0]*\d|\d)\s*слов/i);
 
-    const tagsNode = doc.querySelector(".description .tags, .fanfic-hat-body .tags");
-    const tags = tagsNode
-        ? Array.from(tagsNode.querySelectorAll("a"))
-            .map(a => a.textContent.trim())
-            .filter(Boolean)
-            .join(", ")
+    const size = sizeMatch
+        ? sizeMatch[1]
+            .replace(/\u00a0/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
         : "";
 
+    /*
+     * Сохраняем группы меток отдельно:
+     *
+     * tagSections = [
+     *     {
+     *         label: "Предупреждения",
+     *         tags: ["Похищение", "Счастливый финал"]
+     *     },
+     *     {
+     *         label: "Другие метки",
+     *         tags: ["AU", "Hurt/Comfort", "Драма"]
+     *     }
+     * ]
+     */
+    const tagSections = getTagSections(doc);
+
+    /*
+     * Общий список оставляем для обратной совместимости.
+     * Он используется в метаданных EPUB, FB2 и других форматах.
+     */
+    const tags = uniqueValues(
+        tagSections.flatMap(section => section.tags)
+    ).join(", ");
+
     const description = doc.querySelector(
-        ".description .js-public-beta-description, .fanfic-hat-body .js-public-beta-description"
+        ".description .js-public-beta-description, " +
+        ".fanfic-hat-body .js-public-beta-description"
     )?.textContent?.trim() || "";
 
     const notes = doc.querySelector(
-        ".description .js-public-beta-author-comment, .fanfic-hat-body .js-public-beta-author-comment"
+        ".description .js-public-beta-author-comment, " +
+        ".fanfic-hat-body .js-public-beta-author-comment"
     )?.textContent?.trim() || "";
 
-    const otherPublicationBlock = findBlock("Публикация на других ресурсах:");
+    const otherPublicationBlock = findBlock(
+        "Публикация на других ресурсах:"
+    );
+
     let otherPublication = "";
+
     if (otherPublicationBlock) {
         const clone = otherPublicationBlock.cloneNode(true);
         clone.querySelector("strong")?.remove();
+
         otherPublication = (clone.textContent || "")
             .replace(/^\s*[:：]?\s*/, "")
+            .replace(/\s+/g, " ")
             .trim();
     }
 
-    const pairingBlock = findBlock("Пэйринг и персонажи:") || findBlock("Пейринг и персонажи:");
+    const pairingBlock =
+        findBlock("Пэйринг и персонажи:") ||
+        findBlock("Пейринг и персонажи:");
+
     const pairings = pairingBlock
-        ? Array.from(pairingBlock.querySelectorAll("a"))
-            .map(a => a.textContent.trim())
-            .filter(Boolean)
+        ? uniqueValues(
+            Array.from(pairingBlock.querySelectorAll("a"))
+                .map(link =>
+                    link.textContent
+                        .replace(/\s+/g, " ")
+                        .trim()
+                )
+        )
         : [];
 
-    return { fandom, size, tags, description, notes, otherPublication, pairings };
+    return {
+        fandom,
+        size,
+        tags,
+        tagSections,
+        description,
+        notes,
+        otherPublication,
+        pairings
+    };
 }
 
 function getDirectionRatingStatus(doc = document) {
     const root = doc.querySelector(".fanfic-badges");
-    if (!root) return { direction: "", rating: "", status: "" };
+
+    if (!root) {
+        return {
+            direction: "",
+            rating: "",
+            status: ""
+        };
+    }
 
     const directionNode = root.querySelector("[class*='direction']");
-    const direction = directionNode?.querySelector("span")?.textContent?.trim()
-        || directionNode?.textContent?.trim()
-        || "";
 
-    const ratingNode = root.querySelector("[class*='ds-label-rating'], [class*='badge-rating']");
+    const direction =
+        directionNode?.querySelector("span")?.textContent?.trim() ||
+        directionNode?.textContent?.trim() ||
+        "";
+
+    const ratingNode = root.querySelector(
+        "[class*='ds-label-rating'], " +
+        "[class*='badge-rating']"
+    );
+
     const rating = ratingNode?.textContent?.trim() || "";
 
-    const statusNode = root.querySelector("[class*='ds-label-status'], [class*='badge-status']");
+    const statusNode = root.querySelector(
+        "[class*='ds-label-status'], " +
+        "[class*='badge-status']"
+    );
+
     const status = statusNode?.textContent?.trim() || "";
 
-    return { direction, rating, status };
+    return {
+        direction,
+        rating,
+        status
+    };
 }
 
 function getOriginalAuthor(doc = document) {
     for (const block of doc.querySelectorAll(".mb-10")) {
-        const label = block.querySelector("strong")?.textContent?.trim() || "";
+        const label =
+            block.querySelector("strong")
+                ?.textContent
+                ?.trim() || "";
+
         if (!label.startsWith("Автор оригинала")) continue;
 
         const link = block.querySelector("a");
+
         return {
             name: link?.textContent?.trim() || "",
             url: getMeta_absoluteUrl(link?.getAttribute("href"))
         };
     }
+
     return null;
 }
 
 function getOriginalWork(doc = document) {
     for (const block of doc.querySelectorAll(".mb-10")) {
-        const label = block.querySelector("strong")?.textContent?.trim() || "";
+        const label =
+            block.querySelector("strong")
+                ?.textContent
+                ?.trim() || "";
+
         if (!label.startsWith("Оригинал")) continue;
 
         const link = block.querySelector("a");
         if (!link) return null;
 
-        let url = link.href || link.getAttribute("href") || "";
+        let url =
+            link.href ||
+            link.getAttribute("href") ||
+            "";
+
         try {
-            const parsed = new URL(url, location.origin && location.origin !== "null" ? location.origin : "https://ficbook.net");
-            if (parsed.pathname.includes("/away") && parsed.searchParams.has("url")) {
-                url = parsed.searchParams.get("url");
+            const base =
+                location.origin && location.origin !== "null"
+                    ? location.origin
+                    : "https://ficbook.net";
+
+            const parsed = new URL(url, base);
+
+            if (
+                parsed.pathname.includes("/away") &&
+                parsed.searchParams.has("url")
+            ) {
+                url = parsed.searchParams.get("url") || "";
             } else {
                 url = parsed.href;
             }
         } catch (_) {
             // Оставляем исходную строку, если URL некорректен.
         }
+
         return { url };
     }
+
     return null;
 }
-
 ;// ./src/utils/delay.js
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -405,86 +564,144 @@ async function getChapter(url, options = {}, attempt = 1) {
 }
 
 ;// ./src/core/getCover.js
-const COVER_SELECTORS = [
-    // Сначала берём крупную картинку из фактического блока обложки.
-    ".fanfic-hat-cover picture img",
-    ".fanfic-hat-cover img",
-    ".fanfic-cover picture img",
-    ".fanfic-cover img",
-    "img[itemprop='image']",
-    "[itemprop='image'] img",
-    ".fanfic-hat-body img[class*='cover']",
-    "img[class*='fanfic'][class*='cover']",
-    // Open Graph остаётся резервным вариантом: на Ficbook там часто уменьшенная m_-версия.
-    "meta[property='og:image']",
-    "meta[name='twitter:image']"
-];
+const REAL_COVER_SELECTOR =
+    ".fanfic-hat-cover picture img, " +
+    ".fanfic-hat-cover img";
 
 function candidateFromNode(node) {
     if (!node) return "";
-    if (node.tagName?.toLowerCase() === "meta") return node.getAttribute("content") || "";
 
-    const srcset = node.getAttribute("srcset") || node.getAttribute("data-srcset") || "";
+    const srcset =
+        node.getAttribute("srcset") ||
+        node.getAttribute("data-srcset") ||
+        "";
+
     if (srcset) {
         const candidates = srcset
             .split(",")
             .map(part => {
                 const [url, descriptor = ""] = part.trim().split(/\s+/, 2);
+
                 const score = descriptor.endsWith("w")
                     ? Number.parseFloat(descriptor)
                     : descriptor.endsWith("x")
                         ? Number.parseFloat(descriptor) * 10000
                         : 0;
-                return { url, score: Number.isFinite(score) ? score : 0 };
+
+                return {
+                    url,
+                    score: Number.isFinite(score) ? score : 0
+                };
             })
             .filter(item => item.url);
+
         candidates.sort((a, b) => b.score - a.score);
-        if (candidates[0]?.url) return candidates[0].url;
+
+        if (candidates[0]?.url) {
+            return candidates[0].url;
+        }
     }
 
-    return node.getAttribute("data-src") || node.getAttribute("src") || "";
+    return (
+        node.getAttribute("data-src") ||
+        node.getAttribute("src") ||
+        ""
+    );
 }
 
 function getCover_absoluteUrl(value, doc = document) {
     if (!value) return "";
+
     try {
-        const fallbackBase = location.origin && location.origin !== "null"
-            ? location.origin
-            : "https://ficbook.net";
-        const base = doc.baseURI && doc.baseURI !== "about:blank" ? doc.baseURI : fallbackBase;
+        const fallbackBase =
+            location.origin && location.origin !== "null"
+                ? location.origin
+                : "https://ficbook.net";
+
+        const base =
+            doc.baseURI && doc.baseURI !== "about:blank"
+                ? doc.baseURI
+                : fallbackBase;
+
         return new URL(value, base).href;
     } catch (_) {
         return "";
     }
 }
 
-function findCoverUrl(doc = document) {
-    for (const selector of COVER_SELECTORS) {
-        const value = candidateFromNode(doc.querySelector(selector));
-        if (!value || value.startsWith("data:")) continue;
+function isRealFicbookCover(value) {
+    if (!value) return false;
 
-        const href = getCover_absoluteUrl(value, doc);
-        if (!href) continue;
+    try {
+        const url = new URL(value);
 
-        try {
-            const url = new URL(href);
-            if (/avatar|logo|favicon|default[-_]?cover|no[-_]?cover/i.test(url.pathname)) continue;
-            return url.href;
-        } catch (_) {
-            // Пробуем следующий селектор.
+        /*
+         * Настоящие обложки произведений Ficbook хранятся
+         * в каталоге /fanfic-covers/.
+         *
+         * Благодаря этой проверке логотипы, аватары,
+         * рекламные картинки и изображения-заглушки
+         * не попадут в книгу.
+         */
+        if (!url.pathname.includes("/fanfic-covers/")) {
+            return false;
         }
+
+        if (
+            /avatar|logo|favicon|placeholder|default|no[-_]?cover/i.test(
+                url.pathname
+            )
+        ) {
+            return false;
+        }
+
+        return true;
+    } catch (_) {
+        return false;
     }
-    return "";
+}
+
+function findCoverUrl(doc = document) {
+    /*
+     * Не используем og:image и другие резервные картинки.
+     * Если на странице нет настоящего блока обложки,
+     * считаем, что обложки у произведения нет.
+     */
+    const coverRoot = doc.querySelector(".fanfic-hat-cover");
+    if (!coverRoot) return "";
+
+    const image = doc.querySelector(REAL_COVER_SELECTOR);
+    if (!image) return "";
+
+    const value = candidateFromNode(image);
+
+    if (!value || value.startsWith("data:")) {
+        return "";
+    }
+
+    const href = getCover_absoluteUrl(value, doc);
+
+    if (!isRealFicbookCover(href)) {
+        return "";
+    }
+
+    return href;
 }
 
 function headerValue(headers, name) {
-    const match = String(headers || "").match(new RegExp(`^${name}:\\s*(.+)$`, "im"));
+    const match = String(headers || "").match(
+        new RegExp(`^${name}:\\s*(.+)$`, "im")
+    );
+
     return match?.[1]?.trim() || "";
 }
 
 function gmRequestBlob(url) {
     return new Promise((resolve, reject) => {
-        const request = globalThis.GM_xmlhttpRequest || globalThis.GM?.xmlHttpRequest;
+        const request =
+            globalThis.GM_xmlhttpRequest ||
+            globalThis.GM?.xmlHttpRequest;
+
         if (!request) {
             reject(new Error("GM_xmlhttpRequest недоступен"));
             return;
@@ -495,32 +712,88 @@ function gmRequestBlob(url) {
             url,
             responseType: "arraybuffer",
             timeout: 30000,
+
             onload: response => {
-                if (response.status < 200 || response.status >= 300 || !response.response) {
+                if (
+                    response.status < 200 ||
+                    response.status >= 300 ||
+                    !response.response
+                ) {
                     reject(new Error(`HTTP ${response.status}`));
                     return;
                 }
 
-                const contentType = headerValue(response.responseHeaders, "content-type") || "application/octet-stream";
-                resolve(new Blob([response.response], { type: contentType }));
+                const contentType =
+                    headerValue(
+                        response.responseHeaders,
+                        "content-type"
+                    ) || "application/octet-stream";
+
+                /*
+                 * Дополнительно проверяем, что сервер действительно
+                 * вернул изображение, а не HTML-страницу ошибки.
+                 */
+                if (!contentType.toLowerCase().startsWith("image/")) {
+                    reject(
+                        new Error(
+                            `Получен неподходящий тип файла: ${contentType}`
+                        )
+                    );
+                    return;
+                }
+
+                resolve(
+                    new Blob(
+                        [response.response],
+                        { type: contentType }
+                    )
+                );
             },
-            onerror: () => reject(new Error("Ошибка загрузки обложки")),
-            ontimeout: () => reject(new Error("Тайм-аут загрузки обложки"))
+
+            onerror: () => {
+                reject(new Error("Ошибка загрузки обложки"));
+            },
+
+            ontimeout: () => {
+                reject(new Error("Тайм-аут загрузки обложки"));
+            }
         });
     });
 }
 
 async function fetchBlob(url) {
-    // Сначала пробуем GM-запрос: он не зависит от CORS страницы Ficbook.
+    /*
+     * Сначала используем GM-запрос, поскольку он
+     * не зависит от CORS страницы Ficbook.
+     */
     try {
         return await gmRequestBlob(url);
     } catch (gmError) {
         try {
-            const response = await fetch(url, { credentials: "omit", mode: "cors" });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const response = await fetch(url, {
+                credentials: "omit",
+                mode: "cors"
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const contentType =
+                response.headers.get("content-type") || "";
+
+            if (!contentType.toLowerCase().startsWith("image/")) {
+                throw new Error(
+                    `Получен неподходящий тип файла: ${contentType || "неизвестно"}`
+                );
+            }
+
             return await response.blob();
         } catch (fetchError) {
-            throw new Error(`Не удалось скачать обложку: ${gmError.message}; ${fetchError.message}`);
+            throw new Error(
+                `Не удалось скачать обложку: ` +
+                `${gmError.message}; ${fetchError.message}`
+            );
         }
     }
 }
@@ -529,61 +802,137 @@ function loadImage(blob) {
     return new Promise((resolve, reject) => {
         const objectUrl = URL.createObjectURL(blob);
         const image = new Image();
+
         image.onload = () => {
             URL.revokeObjectURL(objectUrl);
             resolve(image);
         };
+
         image.onerror = () => {
             URL.revokeObjectURL(objectUrl);
-            reject(new Error("Браузер не смог декодировать изображение"));
+
+            reject(
+                new Error(
+                    "Браузер не смог декодировать изображение"
+                )
+            );
         };
+
         image.src = objectUrl;
     });
 }
 
 function canvasToBlob(canvas, type, quality) {
     return new Promise((resolve, reject) => {
-        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Не удалось преобразовать обложку")), type, quality);
+        canvas.toBlob(
+            blob => {
+                if (blob) {
+                    resolve(blob);
+                } else {
+                    reject(
+                        new Error(
+                            "Не удалось преобразовать обложку"
+                        )
+                    );
+                }
+            },
+            type,
+            quality
+        );
     });
 }
 
 async function normalizeToJpeg(blob) {
     const image = await loadImage(blob);
+
+    if (!image.naturalWidth || !image.naturalHeight) {
+        throw new Error("Изображение имеет нулевой размер");
+    }
+
     const maxWidth = 1600;
     const maxHeight = 2400;
-    const scale = Math.min(1, maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
-    const width = Math.max(1, Math.round(image.naturalWidth * scale));
-    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+    const scale = Math.min(
+        1,
+        maxWidth / image.naturalWidth,
+        maxHeight / image.naturalHeight
+    );
+
+    const width = Math.max(
+        1,
+        Math.round(image.naturalWidth * scale)
+    );
+
+    const height = Math.max(
+        1,
+        Math.round(image.naturalHeight * scale)
+    );
 
     const canvas = document.createElement("canvas");
+
     canvas.width = width;
     canvas.height = height;
-    const context = canvas.getContext("2d", { alpha: false });
-    if (!context) throw new Error("Canvas 2D недоступен");
+
+    const context = canvas.getContext("2d", {
+        alpha: false
+    });
+
+    if (!context) {
+        throw new Error("Canvas 2D недоступен");
+    }
+
     context.fillStyle = "#ffffff";
     context.fillRect(0, 0, width, height);
     context.drawImage(image, 0, 0, width, height);
 
-    return { blob: await canvasToBlob(canvas, "image/jpeg", 0.9), width, height };
+    return {
+        blob: await canvasToBlob(
+            canvas,
+            "image/jpeg",
+            0.9
+        ),
+        width,
+        height
+    };
 }
 
 function bytesToBase64(bytes) {
     let binary = "";
     const chunkSize = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+
+    for (
+        let index = 0;
+        index < bytes.length;
+        index += chunkSize
+    ) {
+        binary += String.fromCharCode(
+            ...bytes.subarray(
+                index,
+                index + chunkSize
+            )
+        );
     }
+
     return btoa(binary);
 }
 
 async function getCover(doc = document) {
     const sourceUrl = findCoverUrl(doc);
+
+    /*
+     * Если настоящей обложки нет, возвращаем null.
+     * Экспортёры должны создать книгу без обложки.
+     */
     if (!sourceUrl) return null;
 
     try {
         const originalBlob = await fetchBlob(sourceUrl);
         const normalized = await normalizeToJpeg(originalBlob);
-        const bytes = new Uint8Array(await normalized.blob.arrayBuffer());
+
+        const bytes = new Uint8Array(
+            await normalized.blob.arrayBuffer()
+        );
+
         const base64 = bytesToBase64(bytes);
 
         return {
@@ -598,11 +947,15 @@ async function getCover(doc = document) {
             height: normalized.height
         };
     } catch (error) {
-        console.warn("Обложка найдена, но не добавлена:", sourceUrl, error);
+        console.warn(
+            "Обложка найдена, но не добавлена:",
+            sourceUrl,
+            error
+        );
+
         return null;
     }
 }
-
 ;// ./src/core/collectBook.js
 
 
@@ -821,6 +1174,7 @@ function textToParagraphs(text) {
 
 function personXml(person) {
     if (!person) return "";
+
     return `
             <author>
                 <nickname>${escapeXml(person.name)}</nickname>
@@ -830,19 +1184,82 @@ function personXml(person) {
 
 function annotationPerson(label, people) {
     if (!people?.length) return "";
-    const value = people.map(person => person.url
-        ? `${escapeXml(person.name)} (${escapeXml(person.url)})`
-        : escapeXml(person.name)
-    ).join(", ");
+
+    const value = people
+        .map(person =>
+            person.url
+                ? `${escapeXml(person.name)} (${escapeXml(person.url)})`
+                : escapeXml(person.name)
+        )
+        .join(", ");
+
     return `<p><strong>${escapeXml(label)}:</strong> ${value}</p>`;
+}
+
+function externalLinkXml(url, label = url) {
+    if (!url) return "";
+
+    return `<a xlink:href="${escapeXml(url)}">${escapeXml(label)}</a>`;
+}
+
+/**
+ * Выводит разделы меток Ficbook отдельно:
+ *
+ * Предупреждения: ...
+ * Другие метки: ...
+ *
+ * При отсутствии разделов использует общий список tags.
+ */
+function annotationTagSections(tagSections, fallbackTags) {
+    if (Array.isArray(tagSections) && tagSections.length) {
+        const sections = tagSections
+            .filter(section =>
+                section?.label &&
+                Array.isArray(section.tags) &&
+                section.tags.length
+            )
+            .map(section => {
+                const label = escapeXml(section.label);
+                const values = escapeXml(section.tags.join(", "));
+
+                return `<p><strong>${label}:</strong> ${values}</p>`;
+            });
+
+        if (sections.length) {
+            return sections.join("");
+        }
+    }
+
+    return fallbackTags
+        ? `<p><strong>Метки:</strong> ${escapeXml(fallbackTags)}</p>`
+        : "";
 }
 
 function buildFb2Header({ meta, cover, bookId }) {
     const {
-        title, mainAuthor, coauthors, originalAuthor, originalWork, translators,
-        betas, gammas, direction, rating, size, status, tags, description,
-        notes, otherPublication, fandom, pairings, series, sourceUrl
+        title,
+        mainAuthor,
+        coauthors,
+        originalAuthor,
+        originalWork,
+        translators,
+        betas,
+        gammas,
+        direction,
+        rating,
+        size,
+        status,
+        tags,
+        tagSections,
+        description,
+        notes,
+        otherPublication,
+        fandom,
+        pairings,
+        series,
+        sourceUrl
     } = meta;
+
     const today = new Date();
     const isoDate = today.toISOString().split("T")[0];
 
@@ -855,34 +1272,74 @@ function buildFb2Header({ meta, cover, bookId }) {
             ${(coauthors || []).map(personXml).join("\n")}
             <book-title>${escapeXml(title)}</book-title>
             <annotation>
-                <p><strong>Ссылка на работу:</strong> ${escapeXml(sourceUrl)}</p>
-                ${direction ? `<p><strong>Направленность:</strong> ${escapeXml(direction)}</p>` : ""}
-                ${mainAuthor ? `<p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)}${mainAuthor.url ? ` (${escapeXml(mainAuthor.url)})` : ""}</p>` : ""}
-                ${originalAuthor && originalAuthor.name !== mainAuthor?.name ? `<p><strong>Автор оригинала:</strong> ${escapeXml(originalAuthor.name)}${originalAuthor.url ? ` (${escapeXml(originalAuthor.url)})` : ""}</p>` : ""}
-                ${originalWork?.url ? `<p><strong>Оригинал:</strong> ${escapeXml(originalWork.url)}</p>` : ""}
+                ${sourceUrl
+        ? `<p><strong>Ссылка на работу:</strong> ${externalLinkXml(sourceUrl)}</p>`
+        : ""}
+                ${direction
+        ? `<p><strong>Направленность:</strong> ${escapeXml(direction)}</p>`
+        : ""}
+                ${mainAuthor
+        ? `<p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)}${mainAuthor.url
+            ? ` (${escapeXml(mainAuthor.url)})`
+            : ""}</p>`
+        : ""}
+                ${originalAuthor && originalAuthor.name !== mainAuthor?.name
+        ? `<p><strong>Автор оригинала:</strong> ${escapeXml(originalAuthor.name)}${originalAuthor.url
+            ? ` (${escapeXml(originalAuthor.url)})`
+            : ""}</p>`
+        : ""}
+                ${originalWork?.url
+        ? `<p><strong>Оригинал:</strong> ${escapeXml(originalWork.url)}</p>`
+        : ""}
                 ${annotationPerson("Переводчик", translators)}
                 ${annotationPerson("Соавторы", coauthors)}
                 ${annotationPerson("Бета", betas)}
                 ${annotationPerson("Гамма", gammas)}
-                ${series ? `<p><strong>Серия:</strong> ${escapeXml(series.name)}${series.url ? ` (${escapeXml(series.url)})` : ""}</p>` : ""}
-                ${fandom ? `<p><strong>Фэндом:</strong> ${escapeXml(fandom)}</p>` : ""}
-                ${pairings?.length ? `<p><strong>Пейринги и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>` : ""}
-                ${rating ? `<p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>` : ""}
-                ${size ? `<p><strong>Размер:</strong> ${escapeXml(size)} слов</p>` : ""}
-                ${status ? `<p><strong>Статус:</strong> ${escapeXml(status)}</p>` : ""}
-                ${tags ? `<p><strong>Метки:</strong> ${escapeXml(tags)}</p>` : ""}
-                ${description ? `<p><strong>Описание:</strong></p>${textToParagraphs(description)}` : ""}
-                ${notes ? `<p><strong>Примечания:</strong></p>${textToParagraphs(notes)}` : ""}
-                ${otherPublication ? `<p><strong>Публикация на других ресурсах:</strong> ${escapeXml(otherPublication)}</p>` : ""}
+                ${series
+        ? `<p><strong>Серия:</strong> ${escapeXml(series.name)}${series.url
+            ? ` (${escapeXml(series.url)})`
+            : ""}</p>`
+        : ""}
+                ${fandom
+        ? `<p><strong>Фэндом:</strong> ${escapeXml(fandom)}</p>`
+        : ""}
+                ${pairings?.length
+        ? `<p><strong>Пейринги и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>`
+        : ""}
+                ${rating
+        ? `<p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>`
+        : ""}
+                ${size
+        ? `<p><strong>Размер:</strong> ${escapeXml(size)} слов</p>`
+        : ""}
+                ${status
+        ? `<p><strong>Статус:</strong> ${escapeXml(status)}</p>`
+        : ""}
+                ${annotationTagSections(tagSections, tags)}
+                ${description
+        ? `<p><strong>Описание:</strong></p>${textToParagraphs(description)}`
+        : ""}
+                ${notes
+        ? `<p><strong>Примечания:</strong></p>${textToParagraphs(notes)}`
+        : ""}
+                ${otherPublication
+        ? `<p><strong>Публикация на других ресурсах:</strong> ${escapeXml(otherPublication)}</p>`
+        : ""}
             </annotation>
             ${tags ? `<keywords>${escapeXml(tags)}</keywords>` : ""}
             <date value="${isoDate}">${today.toLocaleDateString("ru-RU")}</date>
-            ${cover ? `<coverpage><image xlink:href="#${cover.fileName}"/></coverpage>` : ""}
+            ${cover
+        ? `<coverpage><image xlink:href="#${cover.fileName}"/></coverpage>`
+        : ""}
             <lang>ru</lang>
-            ${series?.name ? `<sequence name="${escapeXml(series.name)}"/>` : ""}
+            ${series?.name
+        ? `<sequence name="${escapeXml(series.name)}"/>`
+        : ""}
         </title-info>
         <document-info>
-            <author><nickname>Ficbook Exporter</nickname></author>
+            <author>
+                <nickname>Ficbook Exporter</nickname>
+            </author>
             <program-used>Ficbook Exporter</program-used>
             <date value="${today.toISOString()}">${today.toLocaleString("ru-RU")}</date>
             <src-url>${escapeXml(sourceUrl)}</src-url>
@@ -892,7 +1349,6 @@ function buildFb2Header({ meta, cover, bookId }) {
     </description>
 `;
 }
-
 ;// ./src/fb2/fb2Toc.js
 
 
@@ -1234,6 +1690,42 @@ function peopleLine(label, people) {
     return `<p><strong>${escapeXml(label)}:</strong> ${value}</p>`;
 }
 
+function externalLink(url, label = url) {
+    if (!url) return "";
+
+    return `<a href="${escapeXml(url)}">${escapeXml(label)}</a>`;
+}
+
+/**
+ * Формирует отдельные строки для разделов меток Ficbook:
+ *
+ * Предупреждения: ...
+ * Другие метки: ...
+ *
+ * Если разделы отсутствуют, использует общий список tags.
+ */
+function tagSectionLines(tagSections, fallbackTags) {
+    if (Array.isArray(tagSections) && tagSections.length) {
+        return tagSections
+            .filter(section =>
+                section?.label &&
+                Array.isArray(section.tags) &&
+                section.tags.length
+            )
+            .map(section => {
+                const label = escapeXml(section.label);
+                const values = escapeXml(section.tags.join(", "));
+
+                return `<p><strong>${label}:</strong> ${values}</p>`;
+            })
+            .join("");
+    }
+
+    return fallbackTags
+        ? `<p><strong>Метки:</strong> ${escapeXml(fallbackTags)}</p>`
+        : "";
+}
+
 function buildTitlePage({ meta, cover }) {
     const {
         title,
@@ -1247,6 +1739,7 @@ function buildTitlePage({ meta, cover }) {
         size,
         status,
         tags,
+        tagSections,
         description,
         notes,
         otherPublication,
@@ -1267,25 +1760,51 @@ function buildTitlePage({ meta, cover }) {
         ${cover ? `<img class="cover" src="images/${cover.fileName}" alt="Обложка"/>` : ""}
         <h1>${escapeXml(title)}</h1>
         <h2>${escapeXml(mainAuthor?.name || "")}</h2>
+
         <div class="meta-block">
-            <p><strong>Ссылка на работу:</strong> ${escapeXml(sourceUrl)}</p>
-            ${direction ? `<p><strong>Направленность:</strong> ${escapeXml(direction)}</p>` : ""}
+            ${sourceUrl
+        ? `<p><strong>Ссылка на работу:</strong> ${externalLink(sourceUrl)}</p>`
+        : ""}
+            ${direction
+        ? `<p><strong>Направленность:</strong> ${escapeXml(direction)}</p>`
+        : ""}
             ${peopleLine("Переводчик", translators)}
             ${peopleLine("Соавторы", coauthors)}
             ${peopleLine("Бета", betas)}
             ${peopleLine("Гамма", gammas)}
-            ${series ? `<p><strong>Серия:</strong> ${escapeXml(series.name)}${series.url ? ` (${escapeXml(series.url)})` : ""}</p>` : ""}
-            ${fandom ? `<p><strong>Фэндом:</strong> ${escapeXml(fandom)}</p>` : ""}
-            ${pairings?.length ? `<p><strong>Пейринги и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>` : ""}
-            ${rating ? `<p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>` : ""}
-            ${size ? `<p><strong>Размер:</strong> ${escapeXml(size)} слов</p>` : ""}
-            ${status ? `<p><strong>Статус:</strong> ${escapeXml(status)}</p>` : ""}
-            ${tags ? `<p><strong>Метки:</strong> ${escapeXml(tags)}</p>` : ""}
+            ${series
+        ? `<p><strong>Серия:</strong> ${escapeXml(series.name)}${series.url
+            ? ` (${escapeXml(series.url)})`
+            : ""}</p>`
+        : ""}
+            ${fandom
+        ? `<p><strong>Фэндом:</strong> ${escapeXml(fandom)}</p>`
+        : ""}
+            ${pairings?.length
+        ? `<p><strong>Пейринги и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>`
+        : ""}
+            ${rating
+        ? `<p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>`
+        : ""}
+            ${size
+        ? `<p><strong>Размер:</strong> ${escapeXml(size)} слов</p>`
+        : ""}
+            ${status
+        ? `<p><strong>Статус:</strong> ${escapeXml(status)}</p>`
+        : ""}
+            ${tagSectionLines(tagSections, tags)}
         </div>
     </div>
-    ${description ? `<h2>Описание</h2>${textToParagraphs(description)}` : ""}
-    ${notes ? `<h2>Примечания</h2>${textToParagraphs(notes)}` : ""}
-    ${otherPublication ? `<h2>Публикация на других ресурсах</h2><p>${escapeXml(otherPublication)}</p>` : ""}
+
+    ${description
+        ? `<h2>Описание</h2>${textToParagraphs(description)}`
+        : ""}
+    ${notes
+        ? `<h2>Примечания</h2>${textToParagraphs(notes)}`
+        : ""}
+    ${otherPublication
+        ? `<h2>Публикация на других ресурсах</h2><p>${escapeXml(otherPublication)}</p>`
+        : ""}
 </body>
 </html>`;
 
@@ -1309,7 +1828,9 @@ function buildChapterPage(chapter) {
 function buildTocXhtml(chapters) {
     const items = chapters
         .map(chapter =>
-            `<li><a href="${escapeXml(chapter.file)}">${escapeXml(`${chapter.number}. ${chapter.title}`)}</a></li>`
+            `<li><a href="${escapeXml(chapter.file)}">${escapeXml(
+                `${chapter.number}. ${chapter.title}`
+            )}</a></li>`
         )
         .join("\n");
 
@@ -1494,54 +2015,214 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
 
 
 function addLine(lines, label, value) {
-    if (!value || (Array.isArray(value) && !value.length)) return;
-    lines.push(`${label}: ${Array.isArray(value) ? value.join(", ") : value}`);
+    if (
+        !value ||
+        (Array.isArray(value) && !value.length)
+    ) {
+        return;
+    }
+
+    const text = Array.isArray(value)
+        ? value.join(", ")
+        : value;
+
+    lines.push(`${label}: ${text}`);
+}
+
+function addTagSections(lines, meta) {
+    const tagSections = Array.isArray(meta.tagSections)
+        ? meta.tagSections.filter(section =>
+            section?.label &&
+            Array.isArray(section.tags) &&
+            section.tags.length
+        )
+        : [];
+
+    /*
+     * Выводим метки по разделам Ficbook:
+     *
+     * Предупреждения: ...
+     * Другие метки: ...
+     */
+    if (tagSections.length) {
+        tagSections.forEach(section => {
+            addLine(
+                lines,
+                section.label,
+                section.tags
+            );
+        });
+
+        return;
+    }
+
+    /*
+     * Резервный вариант для старых данных,
+     * в которых tagSections ещё отсутствует.
+     */
+    addLine(lines, "Метки", meta.tags);
 }
 
 function buildHeader(meta) {
-    const lines = [meta.title, meta.mainAuthor?.name || "Неизвестный автор", ""];
+    const lines = [
+        meta.title,
+        meta.mainAuthor?.name || "Неизвестный автор",
+        ""
+    ];
+
     addLine(lines, "Ссылка", meta.sourceUrl);
     addLine(lines, "Направленность", meta.direction);
     addLine(lines, "Рейтинг", meta.rating);
     addLine(lines, "Статус", meta.status);
-    addLine(lines, "Размер", meta.size ? `${meta.size} слов` : "");
-    addLine(lines, "Фэндом", meta.fandom);
-    addLine(lines, "Пейринги и персонажи", meta.pairings);
-    addLine(lines, "Метки", meta.tags);
-    addLine(lines, "Серия", meta.series?.name);
-    addLine(lines, "Соавторы", meta.coauthors?.map(a => a.name));
-    addLine(lines, "Переводчики", meta.translators?.map(a => a.name));
-    addLine(lines, "Бета", meta.betas?.map(a => a.name));
-    addLine(lines, "Гамма", meta.gammas?.map(a => a.name));
-    addLine(lines, "Автор оригинала", meta.originalAuthor?.name);
-    addLine(lines, "Оригинал", meta.originalWork?.url);
 
-    if (meta.description) lines.push("", "Описание", meta.description);
-    if (meta.notes) lines.push("", "Примечания автора", meta.notes);
-    if (meta.otherPublication) lines.push("", "Публикация на других ресурсах", meta.otherPublication);
+    addLine(
+        lines,
+        "Размер",
+        meta.size
+            ? `${meta.size} слов`
+            : ""
+    );
+
+    addLine(lines, "Фэндом", meta.fandom);
+
+    addLine(
+        lines,
+        "Пейринги и персонажи",
+        meta.pairings
+    );
+
+    addTagSections(lines, meta);
+
+    addLine(
+        lines,
+        "Серия",
+        meta.series?.name
+    );
+
+    addLine(
+        lines,
+        "Соавторы",
+        meta.coauthors?.map(author => author.name)
+    );
+
+    addLine(
+        lines,
+        "Переводчики",
+        meta.translators?.map(author => author.name)
+    );
+
+    addLine(
+        lines,
+        "Бета",
+        meta.betas?.map(author => author.name)
+    );
+
+    addLine(
+        lines,
+        "Гамма",
+        meta.gammas?.map(author => author.name)
+    );
+
+    addLine(
+        lines,
+        "Автор оригинала",
+        meta.originalAuthor?.name
+    );
+
+    addLine(
+        lines,
+        "Оригинал",
+        meta.originalWork?.url
+    );
+
+    if (meta.description) {
+        lines.push(
+            "",
+            "Описание",
+            meta.description
+        );
+    }
+
+    if (meta.notes) {
+        lines.push(
+            "",
+            "Примечания автора",
+            meta.notes
+        );
+    }
+
+    if (meta.otherPublication) {
+        lines.push(
+            "",
+            "Публикация на других ресурсах",
+            meta.otherPublication
+        );
+    }
 
     return lines.join("\n");
 }
 
-async function createTXT(onProgress = () => {}, isCancelled = () => false) {
-    const { meta, chapters } = await collectBook(onProgress, isCancelled);
-    const parts = [buildHeader(meta), "", "=".repeat(72)];
+async function createTXT(
+    onProgress = () => {},
+    isCancelled = () => false
+) {
+    const { meta, chapters } = await collectBook(
+        onProgress,
+        isCancelled
+    );
+
+    const parts = [
+        buildHeader(meta),
+        "",
+        "=".repeat(72)
+    ];
 
     for (const chapter of chapters) {
-        parts.push("", `${chapter.number}. ${chapter.title}`, "-".repeat(72), "", chapter.plain);
+        parts.push(
+            "",
+            `${chapter.number}. ${chapter.title}`,
+            "-".repeat(72),
+            "",
+            chapter.plain
+        );
+
         if (chapter.footnotes?.length) {
             parts.push("", "Сноски:");
-            chapter.footnotes.forEach(note => parts.push(`[${note.number}] ${note.text}`));
+
+            chapter.footnotes.forEach(note => {
+                parts.push(
+                    `[${note.number}] ${note.text}`
+                );
+            });
         }
     }
 
+    const translator =
+        meta.translators?.[0]?.name;
 
-    const translator = meta.translators?.[0]?.name;
-    const titlePart = translator ? `${meta.title}_[${translator}]` : meta.title;
-    const fileName = `${generateFileBaseName(meta.mainAuthor?.name || "UnknownAuthor", titlePart)}.txt`;
-    downloadBlob(new Blob(["\ufeff", parts.join("\n")], { type: "text/plain;charset=utf-8" }), fileName);
+    const titlePart = translator
+        ? `${meta.title}_[${translator}]`
+        : meta.title;
+
+    const fileName =
+        `${generateFileBaseName(
+            meta.mainAuthor?.name || "UnknownAuthor",
+            titlePart
+        )}.txt`;
+
+    downloadBlob(
+        new Blob(
+            [
+                "\ufeff",
+                parts.join("\n")
+            ],
+            {
+                type: "text/plain;charset=utf-8"
+            }
+        ),
+        fileName
+    );
 }
-
 ;// ./src/pdf/pdfBuilder.js
 
 
@@ -1549,7 +2230,12 @@ async function createTXT(onProgress = () => {}, isCancelled = () => false) {
 
 
 function linkFragment(url, label = url) {
-    if (!url) return { text: label || "" };
+    if (!url) {
+        return {
+            text: label || ""
+        };
+    }
+
     return {
         text: label || url,
         link: url,
@@ -1560,54 +2246,216 @@ function linkFragment(url, label = url) {
 
 function linkedValue(label, url) {
     if (!label && !url) return [];
-    if (!url) return [{ text: label || "" }];
+
+    if (!url) {
+        return [
+            {
+                text: label || ""
+            }
+        ];
+    }
+
     return [
-        { text: label || url },
-        { text: " (" },
+        {
+            text: label || url
+        },
+        {
+            text: " ("
+        },
         linkFragment(url),
-        { text: ")" }
+        {
+            text: ")"
+        }
     ];
 }
 
 function peopleValue(people) {
     const fragments = [];
+
     (people || []).forEach((person, index) => {
-        if (index) fragments.push({ text: ", " });
-        fragments.push(...linkedValue(person.name, person.url));
+        if (index) {
+            fragments.push({
+                text: ", "
+            });
+        }
+
+        fragments.push(
+            ...linkedValue(person.name, person.url)
+        );
     });
+
     return fragments;
 }
 
 function plainValue(value) {
-    if (Array.isArray(value)) return [{ text: value.join(", ") }];
-    return [{ text: String(value ?? "") }];
+    if (Array.isArray(value)) {
+        return [
+            {
+                text: value.join(", ")
+            }
+        ];
+    }
+
+    return [
+        {
+            text: String(value ?? "")
+        }
+    ];
 }
 
 function metaRows(meta) {
     const rows = [];
+
     const add = (label, fragments) => {
-        if (!fragments?.length || fragments.every(fragment => !String(fragment.text || "").trim())) return;
+        if (
+            !fragments?.length ||
+            fragments.every(fragment =>
+                !String(fragment.text || "").trim()
+            )
+        ) {
+            return;
+        }
+
         rows.push({
-            text: [{ text: `${label}: `, bold: true }, ...fragments],
+            text: [
+                {
+                    text: `${label}: `,
+                    bold: true
+                },
+                ...fragments
+            ],
             margin: [0, 1, 0, 1]
         });
     };
 
-    add("Ссылка", meta.sourceUrl ? [linkFragment(meta.sourceUrl)] : []);
-    add("Направленность", meta.direction ? plainValue(meta.direction) : []);
-    add("Рейтинг", meta.rating ? plainValue(meta.rating) : []);
-    add("Статус", meta.status ? plainValue(meta.status) : []);
-    add("Размер", meta.size ? plainValue(`${meta.size} слов`) : []);
-    add("Фэндом", meta.fandom ? plainValue(meta.fandom) : []);
-    add("Пейринги и персонажи", meta.pairings?.length ? plainValue(meta.pairings) : []);
-    add("Метки", meta.tags ? plainValue(meta.tags) : []);
-    add("Серия", meta.series ? linkedValue(meta.series.name, meta.series.url) : []);
-    add("Соавторы", peopleValue(meta.coauthors));
-    add("Переводчики", peopleValue(meta.translators));
-    add("Бета", peopleValue(meta.betas));
-    add("Гамма", peopleValue(meta.gammas));
-    add("Автор оригинала", meta.originalAuthor ? linkedValue(meta.originalAuthor.name, meta.originalAuthor.url) : []);
-    add("Оригинал", meta.originalWork?.url ? [linkFragment(meta.originalWork.url)] : []);
+    add(
+        "Ссылка",
+        meta.sourceUrl
+            ? [linkFragment(meta.sourceUrl)]
+            : []
+    );
+
+    add(
+        "Направленность",
+        meta.direction
+            ? plainValue(meta.direction)
+            : []
+    );
+
+    add(
+        "Рейтинг",
+        meta.rating
+            ? plainValue(meta.rating)
+            : []
+    );
+
+    add(
+        "Статус",
+        meta.status
+            ? plainValue(meta.status)
+            : []
+    );
+
+    add(
+        "Размер",
+        meta.size
+            ? plainValue(`${meta.size} слов`)
+            : []
+    );
+
+    add(
+        "Фэндом",
+        meta.fandom
+            ? plainValue(meta.fandom)
+            : []
+    );
+
+    add(
+        "Пейринги и персонажи",
+        meta.pairings?.length
+            ? plainValue(meta.pairings)
+            : []
+    );
+
+    /*
+     * Выводим каждый раздел меток отдельно:
+     *
+     * Предупреждения: ...
+     * Другие метки: ...
+     *
+     * Для старых данных без tagSections используется общий meta.tags.
+     */
+    const tagSections = Array.isArray(meta.tagSections)
+        ? meta.tagSections.filter(section =>
+            section?.label &&
+            Array.isArray(section.tags) &&
+            section.tags.length
+        )
+        : [];
+
+    if (tagSections.length) {
+        tagSections.forEach(section => {
+            add(
+                section.label,
+                plainValue(section.tags)
+            );
+        });
+    } else {
+        add(
+            "Метки",
+            meta.tags
+                ? plainValue(meta.tags)
+                : []
+        );
+    }
+
+    add(
+        "Серия",
+        meta.series
+            ? linkedValue(
+            meta.series.name,
+            meta.series.url
+            )
+            : []
+    );
+
+    add(
+        "Соавторы",
+        peopleValue(meta.coauthors)
+    );
+
+    add(
+        "Переводчики",
+        peopleValue(meta.translators)
+    );
+
+    add(
+        "Бета",
+        peopleValue(meta.betas)
+    );
+
+    add(
+        "Гамма",
+        peopleValue(meta.gammas)
+    );
+
+    add(
+        "Автор оригинала",
+        meta.originalAuthor
+            ? linkedValue(
+            meta.originalAuthor.name,
+            meta.originalAuthor.url
+            )
+            : []
+    );
+
+    add(
+        "Оригинал",
+        meta.originalWork?.url
+            ? [linkFragment(meta.originalWork.url)]
+            : []
+    );
+
     return rows;
 }
 
@@ -1616,20 +2464,30 @@ function paragraphNodes(text) {
         .split(/\n{2,}/)
         .map(part => part.trim())
         .filter(Boolean)
-        .map(part => ({ text: part, style: "body", margin: [0, 0, 0, 7] }));
+        .map(part => ({
+            text: part,
+            style: "body",
+            margin: [0, 0, 0, 7]
+        }));
 }
 
 function getPdfBlob(pdfMake, definition) {
     return new Promise((resolve, reject) => {
         try {
-            pdfMake.createPdf(definition).getBlob(resolve);
+            pdfMake
+                .createPdf(definition)
+                .getBlob(resolve);
         } catch (error) {
             reject(error);
         }
     });
 }
 
-function buildPdfDefinition({ meta, cover, chapters }) {
+function buildPdfDefinition({
+                                       meta,
+                                       cover,
+                                       chapters
+                                   }) {
     const content = [];
 
     if (cover) {
@@ -1640,28 +2498,60 @@ function buildPdfDefinition({ meta, cover, chapters }) {
             margin: [0, 0, 0, 18]
         });
     }
-    content.push({ text: meta.title, style: "title" });
+
     content.push({
-        text: linkedValue(meta.mainAuthor?.name || "Неизвестный автор", meta.mainAuthor?.url),
+        text: meta.title,
+        style: "title"
+    });
+
+    content.push({
+        text: linkedValue(
+            meta.mainAuthor?.name || "Неизвестный автор",
+            meta.mainAuthor?.url
+        ),
         style: "author"
     });
+
     content.push(...metaRows(meta));
 
     if (meta.description) {
-        content.push({ text: "Описание", style: "section" }, ...paragraphNodes(meta.description));
+        content.push(
+            {
+                text: "Описание",
+                style: "section"
+            },
+            ...paragraphNodes(meta.description)
+        );
     }
+
     if (meta.notes) {
-        content.push({ text: "Примечания автора", style: "section" }, ...paragraphNodes(meta.notes));
+        content.push(
+            {
+                text: "Примечания автора",
+                style: "section"
+            },
+            ...paragraphNodes(meta.notes)
+        );
     }
+
     if (meta.otherPublication) {
-        content.push({ text: "Публикация на других ресурсах", style: "section" }, ...paragraphNodes(meta.otherPublication));
+        content.push(
+            {
+                text: "Публикация на других ресурсах",
+                style: "section"
+            },
+            ...paragraphNodes(meta.otherPublication)
+        );
     }
 
     if (chapters.length) {
         content.push({
             toc: {
                 id: "chaptersToc",
-                title: { text: "Оглавление", style: "tocTitle" },
+                title: {
+                    text: "Оглавление",
+                    style: "tocTitle"
+                },
                 textStyle: "tocEntry",
                 numberStyle: "tocPageNumber"
             },
@@ -1671,6 +2561,7 @@ function buildPdfDefinition({ meta, cover, chapters }) {
 
     chapters.forEach((chapter, index) => {
         const destinationId = `chapter-${index + 1}`;
+
         content.push({
             text: `${chapter.number}. ${chapter.title}`,
             style: "chapter",
@@ -1678,47 +2569,128 @@ function buildPdfDefinition({ meta, cover, chapters }) {
             tocItem: "chaptersToc",
             pageBreak: "before"
         });
-        content.push(...paragraphNodes(chapter.plain));
+
+        content.push(
+            ...paragraphNodes(chapter.plain)
+        );
+
         if (chapter.footnotes?.length) {
-            content.push({ text: "Сноски", style: "footnoteHeading" });
-            chapter.footnotes.forEach(note => content.push({ text: `[${note.number}] ${note.text}`, style: "footnote" }));
+            content.push({
+                text: "Сноски",
+                style: "footnoteHeading"
+            });
+
+            chapter.footnotes.forEach(note => {
+                content.push({
+                    text: `[${note.number}] ${note.text}`,
+                    style: "footnote"
+                });
+            });
         }
     });
-
 
     return {
         info: {
             title: meta.title,
-            author: meta.mainAuthor?.name || "UnknownAuthor",
-            subject: meta.fandom || "fanfiction",
+            author:
+                meta.mainAuthor?.name ||
+                "UnknownAuthor",
+            subject:
+                meta.fandom ||
+                "fanfiction",
+
+            /*
+             * В служебных метаданных PDF оставляем
+             * общий список всех меток.
+             */
             keywords: meta.tags || ""
         },
+
         pageSize: "A4",
         pageMargins: [54, 54, 54, 58],
-        defaultStyle: { font: "Roboto", fontSize: 11, lineHeight: 1.25 },
-        styles: {
-            title: { fontSize: 22, bold: true, alignment: "center", margin: [0, 0, 0, 8] },
-            author: { fontSize: 14, alignment: "center", margin: [0, 0, 0, 18] },
-            section: { fontSize: 15, bold: true, margin: [0, 16, 0, 8] },
-            tocTitle: { fontSize: 20, bold: true, alignment: "center", margin: [0, 0, 0, 18] },
-            tocEntry: { fontSize: 11, margin: [0, 3, 0, 3] },
-            tocPageNumber: { fontSize: 10, bold: true },
-            chapter: { fontSize: 17, bold: true, alignment: "center", margin: [0, 0, 0, 18] },
-            body: { fontSize: 11, alignment: "justify" },
-            footnoteHeading: { fontSize: 11, bold: true, margin: [0, 12, 0, 5] },
-            footnote: { fontSize: 9, margin: [0, 0, 0, 4] }
+
+        defaultStyle: {
+            font: "Roboto",
+            fontSize: 11,
+            lineHeight: 1.25
         },
+
+        styles: {
+            title: {
+                fontSize: 22,
+                bold: true,
+                alignment: "center",
+                margin: [0, 0, 0, 8]
+            },
+
+            author: {
+                fontSize: 14,
+                alignment: "center",
+                margin: [0, 0, 0, 18]
+            },
+
+            section: {
+                fontSize: 15,
+                bold: true,
+                margin: [0, 16, 0, 8]
+            },
+
+            tocTitle: {
+                fontSize: 20,
+                bold: true,
+                alignment: "center",
+                margin: [0, 0, 0, 18]
+            },
+
+            tocEntry: {
+                fontSize: 11,
+                margin: [0, 3, 0, 3]
+            },
+
+            tocPageNumber: {
+                fontSize: 10,
+                bold: true
+            },
+
+            chapter: {
+                fontSize: 17,
+                bold: true,
+                alignment: "center",
+                margin: [0, 0, 0, 18]
+            },
+
+            body: {
+                fontSize: 11,
+                alignment: "justify"
+            },
+
+            footnoteHeading: {
+                fontSize: 11,
+                bold: true,
+                margin: [0, 12, 0, 5]
+            },
+
+            footnote: {
+                fontSize: 9,
+                margin: [0, 0, 0, 4]
+            }
+        },
+
         footer: (currentPage, pageCount) => ({
             text: `${currentPage} / ${pageCount}`,
             alignment: "center",
             fontSize: 8,
             margin: [0, 15, 0, 0]
         }),
+
         content
     };
 }
 
-async function createPDF(onProgress = () => {}, isCancelled = () => false) {
+async function createPDF(
+    onProgress = () => {},
+    isCancelled = () => false
+) {
     const pdfMake = await loadExternalScript(
         [
             "https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/pdfmake.min.js",
@@ -1726,27 +2698,49 @@ async function createPDF(onProgress = () => {}, isCancelled = () => false) {
         ],
         "pdfMake"
     );
+
     const pdfFonts = await loadExternalScript([
         "https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/vfs_fonts.js",
         "https://unpkg.com/pdfmake@0.2.20/build/vfs_fonts.js"
     ]);
 
-    if (pdfFonts && pdfFonts !== true && typeof pdfMake.addVirtualFileSystem === "function") {
-        pdfMake.addVirtualFileSystem(pdfFonts.default || pdfFonts);
+    if (
+        pdfFonts &&
+        pdfFonts !== true &&
+        typeof pdfMake.addVirtualFileSystem === "function"
+    ) {
+        pdfMake.addVirtualFileSystem(
+            pdfFonts.default || pdfFonts
+        );
     }
 
-    const book = await collectBook(onProgress, isCancelled);
+    const book = await collectBook(
+        onProgress,
+        isCancelled
+    );
+
     const { meta } = book;
     const definition = buildPdfDefinition(book);
+    const blob = await getPdfBlob(
+        pdfMake,
+        definition
+    );
 
-    const blob = await getPdfBlob(pdfMake, definition);
+    const translator =
+        meta.translators?.[0]?.name;
 
-    const translator = meta.translators?.[0]?.name;
-    const titlePart = translator ? `${meta.title}_[${translator}]` : meta.title;
-    const fileName = `${generateFileBaseName(meta.mainAuthor?.name || "UnknownAuthor", titlePart)}.pdf`;
+    const titlePart = translator
+        ? `${meta.title}_[${translator}]`
+        : meta.title;
+
+    const fileName =
+        `${generateFileBaseName(
+            meta.mainAuthor?.name || "UnknownAuthor",
+            titlePart
+        )}.pdf`;
+
     downloadBlob(blob, fileName);
 }
-
 ;// ./src/ui/buttons.js
 /**
  * Встраивает компактную кнопку экспорта в штатную панель действий Ficbook.
