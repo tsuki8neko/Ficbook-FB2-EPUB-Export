@@ -3,8 +3,8 @@
 // @name:ru        Скачивание книг с Фикбука в FB2, EPUB, TXT и PDF
 // @name:en        Ficbook Exporter — FB2, EPUB, TXT and PDF
 // @namespace      http://tampermonkey.net/
-// @version        1.8.1
-// @build          2026-08-04 06:28
+// @version        1.8.2
+// @build          2026-08-04 06:33
 // @description    Export Ficbook works to FB2, EPUB, TXT and PDF with embedded covers
 // @description:en Export Ficbook works to FB2, EPUB, TXT and PDF with embedded covers
 // @description:ru Экспорт произведений Фикбука в FB2, EPUB, TXT и PDF со встроенными обложками
