@@ -1,22 +1,31 @@
 import { createFB2 } from "./fb2/fb2Builder.js";
 import { createEPUB } from "./epub/epubBuilder.js";
+import { createTXT } from "./txt/txtBuilder.js";
+import { createPDF } from "./pdf/pdfBuilder.js";
 import { createButtons } from "./ui/buttons.js";
 
+const exporters = { fb2: createFB2, epub: createEPUB, txt: createTXT, pdf: createPDF };
+let observer = null;
+let insertionScheduled = false;
+
 function insertButtons() {
-    if (!document.querySelector("#ficbook-export-buttons")) {
-        console.log("Вставляем кнопки");
-        createButtons(createFB2, createEPUB);
-    }
+    insertionScheduled = false;
+    if (!document.body || document.querySelector("#ficbook-export-buttons .fbe-inline-trigger")) return;
+    createButtons(exporters);
 }
 
-// 1. Сразу пытаемся вставить кнопки.
-// Если DOM уже готов — кнопки появятся мгновенно.
-// Если нет — их добавит DOMContentLoaded ниже.
-insertButtons();
+function scheduleInsert() {
+    if (insertionScheduled) return;
+    insertionScheduled = true;
+    requestAnimationFrame(insertButtons);
+}
 
-// 2. Если DOM ещё не готов — ждём
-document.addEventListener("DOMContentLoaded", insertButtons);
+function start() {
+    insertButtons();
+    if (observer || !document.body) return;
+    observer = new MutationObserver(scheduleInsert);
+    observer.observe(document.body, { childList: true, subtree: true });
+}
 
-// 3. Подстраховка: если сайт перерисует страницу
-const observer = new MutationObserver(insertButtons);
-observer.observe(document.body, { childList: true, subtree: true });
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, { once: true });
+else start();

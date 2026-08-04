@@ -1,10 +1,9 @@
-// Извлекает название произведения
+export function getTitle(doc = document) {
+    const node =
+        doc.querySelector("h1.heading[itemprop='name']") ||
+        doc.querySelector("h1.heading[itemprop='headline']") ||
+        doc.querySelector("h1.heading") ||
+        doc.querySelector("h1[itemprop='name']");
 
-export function getTitle() {
-    return (
-        document.querySelector("h1.heading[itemprop='name']")?.innerText.trim() ||
-        document.querySelector("h1.heading[itemprop='headline']")?.innerText.trim() ||
-        document.querySelector("h1.heading")?.innerText.trim() ||
-        "Фанфик"
-    );
+    return node?.textContent?.trim() || "Фанфик";
 }

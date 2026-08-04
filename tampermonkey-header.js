@@ -1,15 +1,22 @@
 // ==UserScript==
-// @name            Ficbook Exporter — EPUB & FB2 Downloader
-// @name:ru         Скачивание книг с фикбука в формате FB2 & EPUB
-// @name:en         Ficbook Exporter — EPUB & FB2 Downloader
+// @name            Ficbook Exporter — FB2, EPUB, TXT & PDF
+// @name:ru         Скачивание книг с Фикбука в FB2, EPUB, TXT и PDF
+// @name:en         Ficbook Exporter — FB2, EPUB, TXT & PDF
 // @namespace       http://tampermonkey.net/
-// @version         1.0.0
-// @description     Download books from Ficbook in FB2 & EPUB without registration or limits
-// @description:en  Download books from Ficbook in FB2 & EPUB without registration or limits
-// @description:ru  Скрипт позволяет скачивать книги с Фикбука в форматах FB2 и EPUB без регистрации и ограничений
+// @version         1.8.0
+// @description     Export Ficbook works to FB2, EPUB, TXT and PDF with embedded covers
+// @description:en  Export Ficbook works to FB2, EPUB, TXT and PDF with embedded covers
+// @description:ru  Экспорт произведений Фикбука в FB2, EPUB, TXT и PDF со встроенными обложками
 // @author          tsuki8neko
 // @match           https://ficbook.net/readfic/*
 // @grant           GM_xmlhttpRequest
+// @connect         ficbook.net
+// @connect         *.ficbook.net
+// @connect         assets.teinon.net
+// @connect         *.teinon.net
+// @connect         cdnjs.cloudflare.com
+// @connect         cdn.jsdelivr.net
+// @connect         unpkg.com
 // @license         Apache-2.0
 // @updateURL       https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
 // @downloadURL     https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js

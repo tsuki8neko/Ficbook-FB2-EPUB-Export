@@ -1,163 +1,115 @@
-/**
- * Извлекает дополнительные метаданные произведения из шапки
- *
- * Возвращает:
- * - фэндом(ы)
- * - размер работы в словах
- * - теги
- * - описание
- * - примечания автора
- * - информацию о публикации на других ресурсах
- * - список пейрингов и персонажей
- */
+function absoluteUrl(value) {
+    if (!value) return "";
+    const base = location.origin && location.origin !== "null" ? location.origin : "https://ficbook.net";
+    try { return new URL(value, base).href; } catch (_) { return value; }
+}
 
-export function getExtraData() {
-
-    // Ищет блок описания по тексту заголовка.
+export function getExtraData(doc = document) {
     const findBlock = (label) =>
-        Array.from(document.querySelectorAll(".description .mb-10"))
-            .find(n => n.querySelector("strong")?.innerText.includes(label));
+        Array.from(doc.querySelectorAll(".description .mb-10, .fanfic-hat-body .mb-10"))
+            .find(node => node.querySelector("strong")?.textContent?.includes(label));
 
-    // --- ФЭНДОМ ---
     const fandomBlock = findBlock("Фэндом:");
-    let fandom = fandomBlock
-        ? Array.from(fandomBlock.querySelectorAll("a")).map(a => a.innerText.trim()).join(", ")
+    const fandom = fandomBlock
+        ? Array.from(fandomBlock.querySelectorAll("a"))
+            .map(a => a.textContent.trim())
+            .filter(Boolean)
+            .join(", ")
         : "";
 
-    // --- РАЗМЕР ---
     const sizeBlock = findBlock("Размер:");
-    let size = "";
-    if (sizeBlock) {
-        const match = sizeBlock.innerText.match(/(\d[\d\s]*\d)\s*слов/);
-        size = match ? match[1] : "";
+    const sizeText = sizeBlock?.textContent || "";
+    const sizeMatch = sizeText.match(/(\d[\d\s]*\d|\d)\s*слов/i);
+    const size = sizeMatch ? sizeMatch[1].replace(/\s+/g, " ") : "";
+
+    const tagsNode = doc.querySelector(".description .tags, .fanfic-hat-body .tags");
+    const tags = tagsNode
+        ? Array.from(tagsNode.querySelectorAll("a"))
+            .map(a => a.textContent.trim())
+            .filter(Boolean)
+            .join(", ")
+        : "";
+
+    const description = doc.querySelector(
+        ".description .js-public-beta-description, .fanfic-hat-body .js-public-beta-description"
+    )?.textContent?.trim() || "";
+
+    const notes = doc.querySelector(
+        ".description .js-public-beta-author-comment, .fanfic-hat-body .js-public-beta-author-comment"
+    )?.textContent?.trim() || "";
+
+    const otherPublicationBlock = findBlock("Публикация на других ресурсах:");
+    let otherPublication = "";
+    if (otherPublicationBlock) {
+        const clone = otherPublicationBlock.cloneNode(true);
+        clone.querySelector("strong")?.remove();
+        otherPublication = (clone.textContent || "")
+            .replace(/^\s*[:：]?\s*/, "")
+            .trim();
     }
 
-    // --- ТЕГИ ---
-    const tagsNode = document.querySelector(".description .tags");
-    const tags = tagsNode
-        ? Array.from(tagsNode.querySelectorAll("a")).map(a => a.innerText.trim()).join(", ")
-        : "";
-
-    // --- ОПИСАНИЕ ---
-    const description = document.querySelector(".description .js-public-beta-description")?.innerText.trim() || "";
-
-    // --- ПРИМЕЧАНИЯ ---
-    const notes = document.querySelector(".description .js-public-beta-author-comment")?.innerText.trim() || "";
-
-    // --- ПУБЛИКАЦИЯ НА ДРУГИХ РЕСУРСАХ ---
-    const otherPublicationBlock = findBlock("Публикация на других ресурсах:");
-    const otherPublication = otherPublicationBlock
-        ? otherPublicationBlock.innerText.trim()
-        : "";
-
-    // --- ПЕЙРИНГИ И ПЕРСОНАЖИ ---
-    const pairingBlock =
-        findBlock("Пэйринг и персонажи:") ||
-        findBlock("Пейринг и персонажи:");
-
+    const pairingBlock = findBlock("Пэйринг и персонажи:") || findBlock("Пейринг и персонажи:");
     const pairings = pairingBlock
         ? Array.from(pairingBlock.querySelectorAll("a"))
-            .map(a => a.innerText.trim())
+            .map(a => a.textContent.trim())
             .filter(Boolean)
         : [];
 
-
-    return {
-        fandom,
-        size,
-        tags,
-        description,
-        notes,
-        otherPublication,
-        pairings };
-
+    return { fandom, size, tags, description, notes, otherPublication, pairings };
 }
 
-export function getDirectionRatingStatus() {
+export function getDirectionRatingStatus(doc = document) {
+    const root = doc.querySelector(".fanfic-badges");
+    if (!root) return { direction: "", rating: "", status: "" };
 
-    /**
-     * Извлекает основные характеристики произведения:
-     * направленность, рейтинг и статус.
-     */
-
-    // For old layout
-    // const direction = document.querySelector(".fanfic-badges .badge-with-icon.direction .badge-text")?.innerText.trim() || "";
-    // const rating = document.querySelector(".fanfic-badges .badge-with-icon[class*='badge-rating'] .badge-text")?.innerText.trim() || "";
-    // const status = document.querySelector(".fanfic-badges .badge-with-icon[class*='badge-status'] .badge-text")?.innerText.trim() || "";
-
-    const root = document.querySelector(".fanfic-badges");
-    if (!root) return {
-        direction: "Направленность не найдена на странице",
-        rating: "Рейтинг не найжен на странице",
-        status: "Статус не найден на странице" };
-
-    // Направленность (Слэш, Джен, Гет и т.п.)
     const directionNode = root.querySelector("[class*='direction']");
+    const direction = directionNode?.querySelector("span")?.textContent?.trim()
+        || directionNode?.textContent?.trim()
+        || "";
 
-    const direction =
-        directionNode?.querySelector("span")?.innerText.trim() ||
-        directionNode?.innerText.trim() ||
-        "";
+    const ratingNode = root.querySelector("[class*='ds-label-rating'], [class*='badge-rating']");
+    const rating = ratingNode?.textContent?.trim() || "";
 
-    // Рейтинг (G, PG-13, R, NC-17…)
-    const ratingNode = root.querySelector("[class*='ds-label-rating']");
-    const rating = ratingNode?.innerText.trim() || "";
-
-    // Статус (В процессе, Завершён, Заморожен…)
-    const statusNode = root.querySelector("[class*='ds-label-status']");
-    const status = statusNode?.innerText.trim() || "";
-
+    const statusNode = root.querySelector("[class*='ds-label-status'], [class*='badge-status']");
+    const status = statusNode?.textContent?.trim() || "";
 
     return { direction, rating, status };
 }
 
-/**
-* Извлекает автора оригинального произведения,
-* если фанфик является адаптацией или переводом.
-*/
-export function getOriginalAuthor() {
-    const blocks = document.querySelectorAll(".mb-10");
+export function getOriginalAuthor(doc = document) {
+    for (const block of doc.querySelectorAll(".mb-10")) {
+        const label = block.querySelector("strong")?.textContent?.trim() || "";
+        if (!label.startsWith("Автор оригинала")) continue;
 
-    for (const block of blocks) {
-        const strong = block.querySelector("strong");
-        if (!strong) continue;
-
-        if (strong.innerText.trim().startsWith("Автор оригинала")) {
-            const link = block.querySelector("a");
-            return {
-                name: link?.innerText.trim() || "",
-                url: link?.href || ""
-            };
-        }
+        const link = block.querySelector("a");
+        return {
+            name: link?.textContent?.trim() || "",
+            url: absoluteUrl(link?.getAttribute("href"))
+        };
     }
-
     return null;
 }
 
-// Извлекает ссылку на оригинальное произведение.
-export function getOriginalWork() {
+export function getOriginalWork(doc = document) {
+    for (const block of doc.querySelectorAll(".mb-10")) {
+        const label = block.querySelector("strong")?.textContent?.trim() || "";
+        if (!label.startsWith("Оригинал")) continue;
 
-    const blocks = document.querySelectorAll(".mb-10");
+        const link = block.querySelector("a");
+        if (!link) return null;
 
-    for (const block of blocks) {
-        const strong = block.querySelector("strong");
-        if (!strong) continue;
-
-        if (strong.innerText.trim().startsWith("Оригинал")) {
-            const link = block.querySelector("a");
-            if (!link) return null;
-
-            let url = link.href;
-
-            // Если это редирект — извлекаем оригинал
-            if (url.includes("/away?url=")) {
-                const real = url.split("/away?url=")[1];
-                url = decodeURIComponent(real);
+        let url = link.href || link.getAttribute("href") || "";
+        try {
+            const parsed = new URL(url, location.origin && location.origin !== "null" ? location.origin : "https://ficbook.net");
+            if (parsed.pathname.includes("/away") && parsed.searchParams.has("url")) {
+                url = parsed.searchParams.get("url");
+            } else {
+                url = parsed.href;
             }
-
-            return { url };
+        } catch (_) {
+            // Оставляем исходную строку, если URL некорректен.
         }
+        return { url };
     }
-
     return null;
 }

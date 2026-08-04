@@ -1,16 +1,7 @@
-/**
- * Экранирует специальные символы XML.
- *
- * Нужно для безопасной вставки текста в:
- * - FB2
- * - EPUB
- * - XHTML
- *
- * Иначе документ может стать невалидным XML.
- */
-
-export function escapeXml(str) {
-    return str
+/** Экранирует текст для XML/XHTML. */
+export function escapeXml(value = "") {
+    return String(value)
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")

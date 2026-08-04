@@ -1,98 +1,154 @@
-/**
- * getChapter.js
- *
- * Возвращает:
- *  title     — заголовок главы
- *  plain     — чистый текст
- *  xhtml     — XHTML для FB2/EPUB
- *  footnotes — сноски
- */
-
 import { delay } from "../utils/delay.js";
+import { escapeXml } from "../utils/escapeXml.js";
 import { extractFootnotes } from "./getFootnotes.js";
 
-const MAX_ATTEMPTS = 7;
+const MAX_ATTEMPTS = 5;
+const BLOCK_TAGS = new Set(["p", "div", "section", "article", "blockquote", "li", "h1", "h2", "h3", "h4"]);
 
-export async function getChapter(url, attempt = 1) {
-    await delay(400 + Math.random() * 300);
+function extractJsonObjectAfterMarker(source, marker) {
+    const markerIndex = source.indexOf(marker);
+    if (markerIndex < 0) return null;
 
-    let res;
-    try {
-        res = await fetch(url, { credentials: "same-origin" });
-    } catch (e) {
-        if (attempt < MAX_ATTEMPTS) {
-            await delay(1000 * attempt);
-            return getChapter(url, attempt + 1);
+    const start = source.indexOf("{", markerIndex + marker.length);
+    if (start < 0) return null;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = start; i < source.length; i++) {
+        const char = source[i];
+
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (char === "\\") escaped = true;
+            else if (char === '"') inString = false;
+            continue;
         }
-        throw e;
+
+        if (char === '"') {
+            inString = true;
+            continue;
+        }
+        if (char === "{") depth++;
+        if (char === "}") {
+            depth--;
+            if (depth === 0) return source.slice(start, i + 1);
+        }
     }
 
-    const html = await res.text();
+    return null;
+}
 
+function serializeText(node) {
+    if (!node) return "";
+    if (node.nodeType === Node.TEXT_NODE) return escapeXml(node.nodeValue || "");
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+
+    const tag = node.tagName.toLowerCase();
+    if (["script", "style", "noscript"].includes(tag)) return "";
+    if (tag === "br") return "\n";
+    if (tag === "footnote-ref") {
+        return `<footnote-ref id="${escapeXml(node.getAttribute("id") || "")}" number="${escapeXml(node.getAttribute("number") || "")}"></footnote-ref>`;
+    }
+
+    const inner = Array.from(node.childNodes).map(serializeText).join("");
+    return BLOCK_TAGS.has(tag) ? `\n${inner}\n` : inner;
+}
+
+function normalizeSerializedLine(line) {
+    return line
+        .replace(/\u00a0/g, " ")
+        .replace(/[ \t]+/g, " ")
+        .replace(/\s+(<footnote-ref)/g, " $1")
+        .replace(/(<\/footnote-ref>)\s+/g, "$1 ")
+        .trim();
+}
+
+function xmlLineToPlain(line) {
+    const withRefs = line.replace(
+        /<footnote-ref[^>]*number=["'](\d+)["'][^>]*><\/footnote-ref>/g,
+        "[$1]"
+    );
+    const parsed = new DOMParser().parseFromString(`<root>${withRefs}</root>`, "application/xml");
+    return parsed.querySelector("parsererror") ? withRefs.replace(/<[^>]+>/g, "") : parsed.documentElement.textContent;
+}
+
+function buildChapterText(contentNode) {
+    const serialized = serializeText(contentNode);
+    const lines = serialized
+        .split(/\n+/)
+        .map(normalizeSerializedLine)
+        .filter(Boolean);
+
+    return {
+        xhtml: lines.map(line => `<p>${line}</p>`).join("\n"),
+        plain: lines.map(xmlLineToPlain).join("\n\n")
+    };
+}
+
+export async function getChapter(url, options = {}, attempt = 1) {
+    const isCancelled = options.isCancelled || (() => false);
+    if (isCancelled()) throw new Error("cancelled");
+
+    await delay(350 + Math.random() * 250);
+    if (isCancelled()) throw new Error("cancelled");
+
+    let response;
+    try {
+        response = await fetch(url, { credentials: "same-origin" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    } catch (error) {
+        if (attempt < MAX_ATTEMPTS && !isCancelled()) {
+            await delay(900 * attempt + Math.random() * 400);
+            return getChapter(url, options, attempt + 1);
+        }
+        throw error;
+    }
+
+    const html = await response.text();
     const looksEmpty =
         !html ||
         html.length < 500 ||
-        html.includes("cf-browser-verification") ||
-        html.includes("Cloudflare") ||
-        html.includes("Too Many Requests") ||
-        html.includes("<title>429") ||
-        html.includes("<title>502");
+        /cf-browser-verification|Cloudflare|Too Many Requests|<title>429|<title>502/i.test(html);
 
     if (looksEmpty) {
-        if (attempt < MAX_ATTEMPTS) {
-            await delay(1200 * attempt + Math.random() * 500);
-            return getChapter(url, attempt + 1);
+        if (attempt < MAX_ATTEMPTS && !isCancelled()) {
+            await delay(1100 * attempt + Math.random() * 500);
+            return getChapter(url, options, attempt + 1);
         }
-        throw new Error(`Не удалось загрузить ${url}: пустой HTML`);
+        throw new Error(`Не удалось загрузить ${url}: пустой или служебный HTML`);
     }
 
+    if (isCancelled()) throw new Error("cancelled");
     const doc = new DOMParser().parseFromString(html, "text/html");
-
-    // -----------------------------
-    // Заголовок
-    // -----------------------------
     const title =
-        doc.querySelector(".title-area h2, .part-title h3, .part-title h2, .part-title")?.textContent.trim() ||
+        doc.querySelector(".title-area h2, .part-title h3, .part-title h2, .part-title")?.textContent?.trim() ||
         "Глава";
 
-    // -----------------------------
-    // Основной текст
-    // -----------------------------
     let contentNode =
         doc.querySelector(".part_text") ||
         doc.querySelector("#content .part_text") ||
-        doc.querySelector("[itemprop='articleBody']") ||
-        null;
+        doc.querySelector("[itemprop='articleBody']");
 
-    // fallback — ищем самый большой текстовый блок
     if (!contentNode) {
         let best = null;
         let bestScore = 0;
-
-        const blocks = doc.querySelectorAll("div, article, section");
-        for (const el of blocks) {
-            const text = (el.textContent || "").replace(/\s+/g, " ").trim();
+        for (const element of doc.querySelectorAll("div, article, section")) {
+            const text = (element.textContent || "").replace(/\s+/g, " ").trim();
             if (text.length < 200) continue;
-
-            const cls = el.className || "";
-            if (/header|footer|menu|nav|comment|promo|settings|captcha/i.test(cls)) continue;
-
+            const className = String(element.className || "");
+            if (/header|footer|menu|nav|comment|promo|settings|captcha/i.test(className)) continue;
             if (text.length > bestScore) {
+                best = element;
                 bestScore = text.length;
-                best = el;
             }
         }
-
         contentNode = best;
     }
 
-    if (!contentNode) {
-        throw new Error(`Не найден текст главы: ${url}`);
-    }
+    if (!contentNode) throw new Error(`Не найден текст главы: ${url}`);
 
-    // -----------------------------
-    // Чистка мусора
-    // -----------------------------
     contentNode.querySelectorAll(`
         .js-text-settings,
         .js-text-settings-collapse-button,
@@ -104,97 +160,19 @@ export async function getChapter(url, attempt = 1) {
         .ad,
         .promo,
         .chapter-time
-    `.replace(/\s+/g, " ")).forEach(el => el.remove());
+    `.replace(/\s+/g, " ")).forEach(element => element.remove());
 
-    // -----------------------------
-    // Плоский текст
-    // -----------------------------
-    const plain = (contentNode.textContent || "")
-        .replace(/\u00a0/g, " ")
-        .replace(/[ \t]+/g, " ")
-        .trim();
-
-    // -----------------------------
-    // Сноски
-    // -----------------------------
-    const footnotesMatch = html.match(/\s+textFootnotes\s*=\s*({.*?})/);
-    const notesMap = footnotesMatch ? JSON.parse(footnotesMatch[1]) : {};
-    const footnotes = extractFootnotes(doc, contentNode, notesMap);
-
-    // -----------------------------
-    // XHTML (простая, но чистая)
-    // -----------------------------
-    function buildXhtml(node) {
-        const blocks = [];
-
-        const push = (txt) => {
-            const t = txt.trim();
-            if (t) blocks.push(`<p>${t}</p>`);
-        };
-
-        const processText = (text) => {
-            // нормализуем пробелы
-            text = text.replace(/\u00a0/g, " ");
-
-            // разбиваем по переносам строк
-            const lines = text.split(/\n+/);
-
-            for (let line of lines) {
-                line = line.trim();
-                if (!line) continue;
-
-                // если строка начинается с "—", делаем отдельный абзац
-                if (/^—\s*/.test(line)) {
-                    push(line);
-                    continue;
-                }
-
-                push(line);
-            }
-        };
-
-        const walk = (n) => {
-            if (!n) return;
-
-            if (n.nodeType === Node.TEXT_NODE) {
-                processText(n.nodeValue);
-                return;
-            }
-
-            if (n.nodeType !== Node.ELEMENT_NODE) return;
-
-            const tag = n.tagName.toLowerCase();
-
-            if (tag === "br") {
-                blocks.push(`<p></p>`);
-                return;
-            }
-
-            if (["p", "div", "section", "article"].includes(tag)) {
-                const html = n.innerHTML
-                    .replace(/<br\s*\/?>/gi, "\n")
-                    .replace(/<\/p>/gi, "\n");
-
-                processText(html);
-                return;
-            }
-
-            n.childNodes.forEach(walk);
-        };
-
-        walk(node);
-
-        return blocks.join("\n");
+    let notesMap = {};
+    const notesJson = extractJsonObjectAfterMarker(html, "textFootnotes");
+    if (notesJson) {
+        try {
+            notesMap = JSON.parse(notesJson);
+        } catch (error) {
+            console.warn("Не удалось разобрать сноски главы:", url, error);
+        }
     }
 
-
-    const xhtml = buildXhtml(contentNode);
-
-    return {
-        title,
-        plain,
-        xhtml,
-        footnotes
-    };
+    const footnotes = extractFootnotes(doc, contentNode, notesMap);
+    const { plain, xhtml } = buildChapterText(contentNode);
+    return { title, plain, xhtml, footnotes };
 }
-

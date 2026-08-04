@@ -1,130 +1,346 @@
 /**
- * UI-кнопки для экспорта фанфика:
- * - FB2
- * - EPUB
- * - остановка всех активных загрузок
- *
- * Также управляет состоянием:
- * - параллельные загрузки
- * - отмена процессов
- * - обновление UI во время скачивания
+ * Встраивает компактную кнопку экспорта в штатную панель действий Ficbook.
+ * Список форматов открывается рядом с кнопкой и не зависит от плавающих кнопок сайта.
  */
+export function createButtons(exporters) {
+    const cleanupKey = "__ficbookExporterUiCleanup";
+    if (typeof window[cleanupKey] === "function") window[cleanupKey]();
 
-export function createButtons(createFB2, createEPUB) {
+    // Удаляем интерфейс предыдущей версии, если скрипт был обновлён без перезагрузки страницы.
+    document.querySelectorAll("#ficbook-export-buttons").forEach(element => element.remove());
+    document.querySelector("#ficbook-export-ui-style")?.remove();
 
-    // === ГЛОБАЛЬНЫЙ СЧЁТЧИК АКТИВНЫХ ЗАГРУЗОК ===
-    // для отображения кнопки "Остановить"
-    let activeDownloads = 0;
-
-    function updateStopButton() {
-        stopBtn.style.display = activeDownloads > 0 ? "block" : "none";
-    }
-
-    // === КОНТЕЙНЕР UI ===
-    const container = document.createElement("div");
-    container.id = "ficbook-export-buttons";
-    container.style.position = "fixed";
-    container.style.bottom = "20px";
-    container.style.right = "20px";
-    container.style.zIndex = "10000";
-    container.style.display = "flex";
-    container.style.flexDirection = "column";
-    container.style.gap = "8px";
+    const actionsContainer = document.querySelector(
+        "section.chapter-info .hat-actions-container, .hat-actions-container"
+    );
+    if (!actionsContainer) return false;
 
     /**
-     * Вспомогательная функция создания кнопок с единым стилем
+     * Ищет основную строку действий Ficbook — ту, где находятся лайки,
+     * отметки, комментарии и награды.
      */
-    function createButton(label, bgColor) {
-        const btn = document.createElement("button");
-        btn.textContent = label;
-        btn.style.padding = "8px 12px";
-        btn.style.borderRadius = "999px";
-        btn.style.border = "none";
-        btn.style.cursor = "pointer";
-        btn.style.background = bgColor;
-        btn.style.color = "#fff";
-        btn.style.fontSize = "13px";
-        btn.style.fontWeight = "600";
-        btn.style.opacity = "0.9";
-        btn.style.transition = "opacity 0.15s ease, transform 0.1s ease";
-        return btn;
+    function findPlacement() {
+        const currentContainer = document.querySelector(
+            "section.chapter-info .hat-actions-container, .hat-actions-container"
+        );
+        if (!currentContainer) return null;
+
+        const directRows = Array.from(currentContainer.children).filter(element =>
+            element.matches?.(".d-flex.flex-wrap")
+        );
+        const rows = directRows.length
+            ? directRows
+            : Array.from(currentContainer.querySelectorAll(".d-flex.flex-wrap"));
+
+        const primaryActionsRow = rows.find(row =>
+            row.querySelector(
+                ".ds-btn-primary, .js-marks-plus, .js-reward-count, " +
+                "a[href*='/comments'], .ic_thumbs-up, .ic-star-empty, .ic_star-empty"
+            ) &&
+            !row.querySelector("a[href*='/collections/'], .button-container")
+        );
+
+        const fallbackRow = primaryActionsRow ||
+            directRows[0] ||
+            currentContainer.querySelector(".d-flex.flex-wrap") ||
+            currentContainer.querySelector(".d-flex") ||
+            currentContainer;
+
+        return { row: fallbackRow };
     }
 
-    const fb2Btn = createButton("Скачать FB2", "#3b82f6");
-    const epubBtn = createButton("Скачать EPUB", "#16a34a");
-    const stopBtn = createButton("Остановить загрузку", "#dc2626");
-    stopBtn.style.display = "none";
+    const style = document.createElement("style");
+    style.id = "ficbook-export-ui-style";
+    style.textContent = `
+#ficbook-export-buttons {
+    position: relative;
+    display: inline-flex;
+    flex: 0 0 auto;
+    z-index: 60;
+    font-family: inherit;
+}
+#ficbook-export-buttons *,
+#ficbook-export-buttons *::before,
+#ficbook-export-buttons *::after {
+    box-sizing: border-box;
+}
+.fbe-inline-trigger {
+    width: 148px;
+    min-width: 148px;
+    max-width: 148px;
+    justify-content: center;
+    gap: 5px;
+    overflow: hidden;
+    white-space: nowrap;
+    background: #4f86c6 !important;
+    border: 1px solid #2f639d !important;
+    color: #ffffff !important;
+    font-weight: 700;
+    transition: background-color .15s ease, border-color .15s ease;
+}
+.fbe-inline-trigger:hover,
+.fbe-inline-trigger:focus-visible,
+.fbe-inline-trigger[aria-expanded="true"] {
+    background: #356da9 !important;
+    border-color: #244f7c !important;
+    color: #ffffff !important;
+}
+.fbe-inline-trigger-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.fbe-inline-trigger.is-busy {
+    cursor: pointer;
+}
+.fbe-inline-trigger-chevron {
+    margin-left: 1px;
+    font-size: 9px;
+    line-height: 1;
+    opacity: .8;
+    transition: transform .15s ease;
+}
+.fbe-inline-trigger[aria-expanded="true"] .fbe-inline-trigger-chevron {
+    transform: rotate(180deg);
+}
+.fbe-inline-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    display: none;
+    min-width: 154px;
+    padding: 5px;
+    border: 1px solid rgba(64, 48, 35, .18);
+    border-radius: 8px;
+    background: #fffaf3;
+    box-shadow: 0 8px 22px rgba(45, 31, 22, .2);
+    z-index: 10020;
+}
+.fbe-inline-menu.is-open {
+    display: grid;
+    gap: 3px;
+}
+.fbe-inline-menu-item {
+    display: block;
+    width: 100%;
+    min-height: 34px;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #3f2d21;
+    cursor: pointer;
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.2;
+    text-align: left;
+    white-space: nowrap;
+}
+.fbe-inline-menu-item:hover,
+.fbe-inline-menu-item:focus-visible {
+    background: rgba(122, 87, 52, .12);
+    outline: none;
+}
+body.dark-theme .fbe-inline-menu {
+    border-color: rgba(255, 255, 255, .14);
+    background: #2d2723;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, .42);
+}
+body.dark-theme .fbe-inline-menu-item {
+    color: #f4ece5;
+}
+body.dark-theme .fbe-inline-menu-item:hover,
+body.dark-theme .fbe-inline-menu-item:focus-visible {
+    background: rgba(255, 255, 255, .09);
+}
 
-    // === ГЛОБАЛЬНАЯ ОТМЕНА ВСЕХ ЗАГРУЗОК ===
-    let cancelCallbacks = new Set();
+@media (max-width: 767px) {
+    .hat-actions-container > .d-flex.flex-wrap.justify-content-center {
+        justify-content: flex-start !important;
+        width: 100%;
+    }
+}
 
-    // Вызываем все зарегистрированные cancel-функции
-    stopBtn.onclick = () => {
-        stopBtn.textContent = "Остановка...";
+@media (max-width: 520px) {
+    .fbe-inline-menu {
+        left: auto;
+        right: 0;
+    }
+}
+`;
 
-        cancelCallbacks.forEach(cb => cb());
-        cancelCallbacks.clear();
+    document.querySelector(`#${style.id}`)?.remove();
+    document.head.appendChild(style);
 
-        // НЕ обнуляем activeDownloads
-        updateStopButton();
-    };
+    const wrapper = document.createElement("div");
+    wrapper.id = "ficbook-export-buttons";
 
-    // === ОБЁРТКА ДЛЯ ЗАПУСКА ЛЮБОЙ ЗАГРУЗКИ ===
-    function runDownload(startFn, button, label) {
-        let cancelled = false;
+    const menu = document.createElement("div");
+    menu.className = "fbe-inline-menu";
+    menu.id = "ficbook-export-format-menu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", "Выберите формат файла");
 
-        // Регистрируем отмену
-        const cancelFn = () => {
-            cancelled = true;
-        };
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "ds-btn ds-btn-regular ds-btn-mini fbe-inline-trigger";
+    trigger.setAttribute("aria-haspopup", "menu");
+    trigger.setAttribute("aria-controls", menu.id);
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.innerHTML = `
+<span class="fbe-inline-trigger-label">Скачать</span>
+<span class="fbe-inline-trigger-chevron" aria-hidden="true">▼</span>`;
 
-        cancelCallbacks.add(cancelFn);
+    const triggerLabel = trigger.querySelector(".fbe-inline-trigger-label");
+    const triggerChevron = trigger.querySelector(".fbe-inline-trigger-chevron");
+    let activeDownload = null;
 
-        activeDownloads++;
-        updateStopButton();
+    const configs = [
+        { format: "FB2", start: exporters.fb2 },
+        { format: "EPUB", start: exporters.epub },
+        { format: "PDF", start: exporters.pdf },
+        { format: "TXT", start: exporters.txt }
+    ];
 
-        button.disabled = true;
-        button.textContent = label;
-
-        startFn(
-            (current, total) => {
-                if (cancelled) throw new Error("cancelled");
-                // Обновление прогресса загрузки
-                button.textContent = `${label}: Загружается глава ${current}/${total}`;
-            },
-            () => cancelled
-        )
-            .catch(err => {
-                if (err.message === "cancelled") {
-                    button.textContent = "Отменено";
-                }
-            })
-            .finally(() => {
-
-                // Удаляем callback отмены
-                cancelCallbacks.delete(cancelFn);
-
-                activeDownloads--;
-                updateStopButton();
-
-                button.disabled = false;
-                button.textContent = label;
-                stopBtn.textContent = "Остановить загрузку";
-            });
+    function closeMenu() {
+        menu.classList.remove("is-open");
+        trigger.setAttribute("aria-expanded", "false");
     }
 
-    // === FB2 экспорт ===
-    fb2Btn.onclick = () => {
-        runDownload(createFB2, fb2Btn, "Скачать FB2");
+    function openMenu() {
+        if (activeDownload) return;
+        menu.classList.add("is-open");
+        trigger.setAttribute("aria-expanded", "true");
+        menu.querySelector(".fbe-inline-menu-item")?.focus();
+    }
+
+    function resetTrigger() {
+        trigger.classList.remove("is-busy");
+        triggerLabel.textContent = "Скачать";
+        triggerChevron.textContent = "▼";
+        trigger.title = "Выбрать формат файла";
+    }
+
+    function cancelActiveDownload() {
+        if (!activeDownload || activeDownload.stopping) return;
+        activeDownload.stopping = true;
+        activeDownload.cancelled = true;
+        triggerLabel.textContent = "Остановка…";
+        triggerChevron.textContent = "";
+    }
+
+    async function runDownload(config) {
+        if (activeDownload) return;
+        closeMenu();
+
+        const state = { cancelled: false, stopping: false, format: config.format };
+        activeDownload = state;
+        trigger.classList.add("is-busy");
+        triggerLabel.textContent = `Подготовка ${config.format}`;
+        triggerChevron.textContent = "×";
+        trigger.title = `Остановить экспорт ${config.format}`;
+
+        try {
+            await config.start(
+                (current, total) => {
+                    if (state.cancelled) throw new Error("cancelled");
+                    triggerLabel.textContent = `${config.format} ${current}/${total}`;
+                },
+                () => state.cancelled
+            );
+        } catch (error) {
+            if (error?.message !== "cancelled") {
+                console.error(`Ошибка экспорта ${config.format}:`, error);
+                alert(`Не удалось создать файл ${config.format}:\n${error?.message || error}`);
+            }
+        } finally {
+            if (activeDownload === state) activeDownload = null;
+            resetTrigger();
+        }
+    }
+
+    configs.forEach(config => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "fbe-inline-menu-item";
+        item.setAttribute("role", "menuitem");
+        item.textContent = `Скачать ${config.format}`;
+        item.addEventListener("click", event => {
+            event.stopPropagation();
+            runDownload(config);
+        });
+        menu.appendChild(item);
+    });
+
+    trigger.addEventListener("click", event => {
+        event.stopPropagation();
+        if (activeDownload) {
+            cancelActiveDownload();
+            return;
+        }
+        if (menu.classList.contains("is-open")) closeMenu();
+        else openMenu();
+    });
+
+    function onDocumentClick(event) {
+        if (!wrapper.contains(event.target)) closeMenu();
+    }
+
+    function onKeyDown(event) {
+        if (event.key === "Escape") {
+            closeMenu();
+            trigger.focus();
+        }
+    }
+
+    document.addEventListener("click", onDocumentClick);
+    document.addEventListener("keydown", onKeyDown);
+
+    wrapper.append(menu, trigger);
+
+    /**
+     * Ставит кнопку в основную строку действий вместе с лайками,
+     * комментариями и наградами. Если Ficbook пересоздал панель,
+     * кнопка автоматически возвращается в новый контейнер.
+     */
+    function insertWrapper() {
+        const placement = findPlacement();
+        if (!placement?.row) return false;
+
+        const { row } = placement;
+        if (wrapper.parentElement !== row) {
+            row.appendChild(wrapper);
+        }
+        return true;
+    }
+
+    insertWrapper();
+    resetTrigger();
+
+    // Ficbook может дорисовывать или полностью пересоздавать панель действий.
+    // Наблюдатель с небольшой задержкой возвращает кнопку на правильное место.
+    let reinjectTimer = null;
+    const placementObserver = new MutationObserver(() => {
+        if (reinjectTimer !== null) return;
+        reinjectTimer = window.setTimeout(() => {
+            reinjectTimer = null;
+            insertWrapper();
+        }, 150);
+    });
+    placementObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true
+    });
+
+    window[cleanupKey] = () => {
+        document.removeEventListener("click", onDocumentClick);
+        document.removeEventListener("keydown", onKeyDown);
+        placementObserver.disconnect();
+        if (reinjectTimer !== null) window.clearTimeout(reinjectTimer);
+        wrapper.remove();
+        style.remove();
+        delete window[cleanupKey];
     };
 
-    // === EPUB экспорт ===
-    epubBtn.onclick = () => {
-        runDownload(createEPUB, epubBtn, "Скачать EPUB");
-    };
-
-    container.appendChild(stopBtn);
-    container.appendChild(fb2Btn);
-    container.appendChild(epubBtn);
-    document.body.appendChild(container);
+    return true;
 }
