@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.7.0...v1.8.0) (2026-08-04)
+
+
+### Features
+
+* add new formats ([bf8782f](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/bf8782fcabf2ed4f3bc1aac512e87d69a047e283))
+
 ## [1.7.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.6.2...v1.7.0) (2026-06-16)
 
 
