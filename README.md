@@ -4,7 +4,7 @@ Userscript для скачивания произведений с [Ficbook](htt
 
 ## Как выглядит кнопка
 
-<p align="left"><img src="https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/refs/heads/master/button.jpg" alt="Меню выбора формата Ficbook Exporter" width="320">
+<p align="left"><img src="https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/refs/heads/master/docs/button.jpg" alt="Меню выбора формата Ficbook Exporter" width="320">
 </p>
 
 Кнопка «Скачать» добавляется в штатную панель действий произведения.
