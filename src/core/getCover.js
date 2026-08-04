@@ -1,83 +1,141 @@
-const COVER_SELECTORS = [
-    // Сначала берём крупную картинку из фактического блока обложки.
-    ".fanfic-hat-cover picture img",
-    ".fanfic-hat-cover img",
-    ".fanfic-cover picture img",
-    ".fanfic-cover img",
-    "img[itemprop='image']",
-    "[itemprop='image'] img",
-    ".fanfic-hat-body img[class*='cover']",
-    "img[class*='fanfic'][class*='cover']",
-    // Open Graph остаётся резервным вариантом: на Ficbook там часто уменьшенная m_-версия.
-    "meta[property='og:image']",
-    "meta[name='twitter:image']"
-];
+const REAL_COVER_SELECTOR =
+    ".fanfic-hat-cover picture img, " +
+    ".fanfic-hat-cover img";
 
 function candidateFromNode(node) {
     if (!node) return "";
-    if (node.tagName?.toLowerCase() === "meta") return node.getAttribute("content") || "";
 
-    const srcset = node.getAttribute("srcset") || node.getAttribute("data-srcset") || "";
+    const srcset =
+        node.getAttribute("srcset") ||
+        node.getAttribute("data-srcset") ||
+        "";
+
     if (srcset) {
         const candidates = srcset
             .split(",")
             .map(part => {
                 const [url, descriptor = ""] = part.trim().split(/\s+/, 2);
+
                 const score = descriptor.endsWith("w")
                     ? Number.parseFloat(descriptor)
                     : descriptor.endsWith("x")
                         ? Number.parseFloat(descriptor) * 10000
                         : 0;
-                return { url, score: Number.isFinite(score) ? score : 0 };
+
+                return {
+                    url,
+                    score: Number.isFinite(score) ? score : 0
+                };
             })
             .filter(item => item.url);
+
         candidates.sort((a, b) => b.score - a.score);
-        if (candidates[0]?.url) return candidates[0].url;
+
+        if (candidates[0]?.url) {
+            return candidates[0].url;
+        }
     }
 
-    return node.getAttribute("data-src") || node.getAttribute("src") || "";
+    return (
+        node.getAttribute("data-src") ||
+        node.getAttribute("src") ||
+        ""
+    );
 }
 
 function absoluteUrl(value, doc = document) {
     if (!value) return "";
+
     try {
-        const fallbackBase = location.origin && location.origin !== "null"
-            ? location.origin
-            : "https://ficbook.net";
-        const base = doc.baseURI && doc.baseURI !== "about:blank" ? doc.baseURI : fallbackBase;
+        const fallbackBase =
+            location.origin && location.origin !== "null"
+                ? location.origin
+                : "https://ficbook.net";
+
+        const base =
+            doc.baseURI && doc.baseURI !== "about:blank"
+                ? doc.baseURI
+                : fallbackBase;
+
         return new URL(value, base).href;
     } catch (_) {
         return "";
     }
 }
 
-export function findCoverUrl(doc = document) {
-    for (const selector of COVER_SELECTORS) {
-        const value = candidateFromNode(doc.querySelector(selector));
-        if (!value || value.startsWith("data:")) continue;
+function isRealFicbookCover(value) {
+    if (!value) return false;
 
-        const href = absoluteUrl(value, doc);
-        if (!href) continue;
+    try {
+        const url = new URL(value);
 
-        try {
-            const url = new URL(href);
-            if (/avatar|logo|favicon|default[-_]?cover|no[-_]?cover/i.test(url.pathname)) continue;
-            return url.href;
-        } catch (_) {
-            // Пробуем следующий селектор.
+        /*
+         * Настоящие обложки произведений Ficbook хранятся
+         * в каталоге /fanfic-covers/.
+         *
+         * Благодаря этой проверке логотипы, аватары,
+         * рекламные картинки и изображения-заглушки
+         * не попадут в книгу.
+         */
+        if (!url.pathname.includes("/fanfic-covers/")) {
+            return false;
         }
+
+        if (
+            /avatar|logo|favicon|placeholder|default|no[-_]?cover/i.test(
+                url.pathname
+            )
+        ) {
+            return false;
+        }
+
+        return true;
+    } catch (_) {
+        return false;
     }
-    return "";
+}
+
+export function findCoverUrl(doc = document) {
+    /*
+     * Не используем og:image и другие резервные картинки.
+     * Если на странице нет настоящего блока обложки,
+     * считаем, что обложки у произведения нет.
+     */
+    const coverRoot = doc.querySelector(".fanfic-hat-cover");
+    if (!coverRoot) return "";
+
+    const image = doc.querySelector(REAL_COVER_SELECTOR);
+    if (!image) return "";
+
+    const value = candidateFromNode(image);
+
+    if (!value || value.startsWith("data:")) {
+        return "";
+    }
+
+    const href = absoluteUrl(value, doc);
+
+    if (!isRealFicbookCover(href)) {
+        return "";
+    }
+
+    return href;
 }
 
 function headerValue(headers, name) {
-    const match = String(headers || "").match(new RegExp(`^${name}:\\s*(.+)$`, "im"));
+    const match = String(headers || "").match(
+        new RegExp(`^${name}:\\s*(.+)$`, "im")
+    );
+
     return match?.[1]?.trim() || "";
 }
 
 function gmRequestBlob(url) {
     return new Promise((resolve, reject) => {
-        const request = globalThis.GM_xmlhttpRequest || globalThis.GM?.xmlHttpRequest;
+        const request =
+            globalThis.GM_xmlhttpRequest ||
+            globalThis.GM?.xmlHttpRequest;
+
         if (!request) {
             reject(new Error("GM_xmlhttpRequest недоступен"));
             return;
@@ -88,32 +146,88 @@ function gmRequestBlob(url) {
             url,
             responseType: "arraybuffer",
             timeout: 30000,
+
             onload: response => {
-                if (response.status < 200 || response.status >= 300 || !response.response) {
+                if (
+                    response.status < 200 ||
+                    response.status >= 300 ||
+                    !response.response
+                ) {
                     reject(new Error(`HTTP ${response.status}`));
                     return;
                 }
 
-                const contentType = headerValue(response.responseHeaders, "content-type") || "application/octet-stream";
-                resolve(new Blob([response.response], { type: contentType }));
+                const contentType =
+                    headerValue(
+                        response.responseHeaders,
+                        "content-type"
+                    ) || "application/octet-stream";
+
+                /*
+                 * Дополнительно проверяем, что сервер действительно
+                 * вернул изображение, а не HTML-страницу ошибки.
+                 */
+                if (!contentType.toLowerCase().startsWith("image/")) {
+                    reject(
+                        new Error(
+                            `Получен неподходящий тип файла: ${contentType}`
+                        )
+                    );
+                    return;
+                }
+
+                resolve(
+                    new Blob(
+                        [response.response],
+                        { type: contentType }
+                    )
+                );
             },
-            onerror: () => reject(new Error("Ошибка загрузки обложки")),
-            ontimeout: () => reject(new Error("Тайм-аут загрузки обложки"))
+
+            onerror: () => {
+                reject(new Error("Ошибка загрузки обложки"));
+            },
+
+            ontimeout: () => {
+                reject(new Error("Тайм-аут загрузки обложки"));
+            }
         });
     });
 }
 
 async function fetchBlob(url) {
-    // Сначала пробуем GM-запрос: он не зависит от CORS страницы Ficbook.
+    /*
+     * Сначала используем GM-запрос, поскольку он
+     * не зависит от CORS страницы Ficbook.
+     */
     try {
         return await gmRequestBlob(url);
     } catch (gmError) {
         try {
-            const response = await fetch(url, { credentials: "omit", mode: "cors" });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const response = await fetch(url, {
+                credentials: "omit",
+                mode: "cors"
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const contentType =
+                response.headers.get("content-type") || "";
+
+            if (!contentType.toLowerCase().startsWith("image/")) {
+                throw new Error(
+                    `Получен неподходящий тип файла: ${contentType || "неизвестно"}`
+                );
+            }
+
             return await response.blob();
         } catch (fetchError) {
-            throw new Error(`Не удалось скачать обложку: ${gmError.message}; ${fetchError.message}`);
+            throw new Error(
+                `Не удалось скачать обложку: ` +
+                `${gmError.message}; ${fetchError.message}`
+            );
         }
     }
 }
@@ -122,61 +236,137 @@ function loadImage(blob) {
     return new Promise((resolve, reject) => {
         const objectUrl = URL.createObjectURL(blob);
         const image = new Image();
+
         image.onload = () => {
             URL.revokeObjectURL(objectUrl);
             resolve(image);
         };
+
         image.onerror = () => {
             URL.revokeObjectURL(objectUrl);
-            reject(new Error("Браузер не смог декодировать изображение"));
+
+            reject(
+                new Error(
+                    "Браузер не смог декодировать изображение"
+                )
+            );
         };
+
         image.src = objectUrl;
     });
 }
 
 function canvasToBlob(canvas, type, quality) {
     return new Promise((resolve, reject) => {
-        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Не удалось преобразовать обложку")), type, quality);
+        canvas.toBlob(
+            blob => {
+                if (blob) {
+                    resolve(blob);
+                } else {
+                    reject(
+                        new Error(
+                            "Не удалось преобразовать обложку"
+                        )
+                    );
+                }
+            },
+            type,
+            quality
+        );
     });
 }
 
 async function normalizeToJpeg(blob) {
     const image = await loadImage(blob);
+
+    if (!image.naturalWidth || !image.naturalHeight) {
+        throw new Error("Изображение имеет нулевой размер");
+    }
+
     const maxWidth = 1600;
     const maxHeight = 2400;
-    const scale = Math.min(1, maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
-    const width = Math.max(1, Math.round(image.naturalWidth * scale));
-    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+    const scale = Math.min(
+        1,
+        maxWidth / image.naturalWidth,
+        maxHeight / image.naturalHeight
+    );
+
+    const width = Math.max(
+        1,
+        Math.round(image.naturalWidth * scale)
+    );
+
+    const height = Math.max(
+        1,
+        Math.round(image.naturalHeight * scale)
+    );
 
     const canvas = document.createElement("canvas");
+
     canvas.width = width;
     canvas.height = height;
-    const context = canvas.getContext("2d", { alpha: false });
-    if (!context) throw new Error("Canvas 2D недоступен");
+
+    const context = canvas.getContext("2d", {
+        alpha: false
+    });
+
+    if (!context) {
+        throw new Error("Canvas 2D недоступен");
+    }
+
     context.fillStyle = "#ffffff";
     context.fillRect(0, 0, width, height);
     context.drawImage(image, 0, 0, width, height);
 
-    return { blob: await canvasToBlob(canvas, "image/jpeg", 0.9), width, height };
+    return {
+        blob: await canvasToBlob(
+            canvas,
+            "image/jpeg",
+            0.9
+        ),
+        width,
+        height
+    };
 }
 
 function bytesToBase64(bytes) {
     let binary = "";
     const chunkSize = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+
+    for (
+        let index = 0;
+        index < bytes.length;
+        index += chunkSize
+    ) {
+        binary += String.fromCharCode(
+            ...bytes.subarray(
+                index,
+                index + chunkSize
+            )
+        );
     }
+
     return btoa(binary);
 }
 
 export async function getCover(doc = document) {
     const sourceUrl = findCoverUrl(doc);
+
+    /*
+     * Если настоящей обложки нет, возвращаем null.
+     * Экспортёры должны создать книгу без обложки.
+     */
     if (!sourceUrl) return null;
 
     try {
         const originalBlob = await fetchBlob(sourceUrl);
         const normalized = await normalizeToJpeg(originalBlob);
-        const bytes = new Uint8Array(await normalized.blob.arrayBuffer());
+
+        const bytes = new Uint8Array(
+            await normalized.blob.arrayBuffer()
+        );
+
         const base64 = bytesToBase64(bytes);
 
         return {
@@ -191,7 +381,12 @@ export async function getCover(doc = document) {
             height: normalized.height
         };
     } catch (error) {
-        console.warn("Обложка найдена, но не добавлена:", sourceUrl, error);
+        console.warn(
+            "Обложка найдена, но не добавлена:",
+            sourceUrl,
+            error
+        );
+
         return null;
     }
 }
