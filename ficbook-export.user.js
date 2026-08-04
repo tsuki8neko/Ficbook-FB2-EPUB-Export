@@ -1,15 +1,23 @@
 // ==UserScript==
-// @name           Ficbook Exporter — EPUB & FB2 Downloader
-// @name:ru        Скачивание книг с фикбука в формате FB2 & EPUB
-// @name:en        Ficbook Exporter — EPUB & FB2 Downloader
+// @name           Ficbook Exporter — FB2, EPUB, TXT & PDF
+// @name:ru        Скачивание книг с Фикбука в FB2, EPUB, TXT и PDF
+// @name:en        Ficbook Exporter — FB2, EPUB, TXT & PDF
 // @namespace      http://tampermonkey.net/
-// @version        1.7.0
-// @build          2026-06-17 07:05
-// @description    Download books from Ficbook in FB2 & EPUB without registration or limits
-// @description:ru Скрипт позволяет скачивать книги с Фикбука в форматах FB2 и EPUB без регистрации и ограничений
+// @version        1.8.0
+// @build          2026-08-04 06:16
+// @description    Export Ficbook works to FB2, EPUB, TXT and PDF with embedded covers
+// @description:en Export Ficbook works to FB2, EPUB, TXT and PDF with embedded covers
+// @description:ru Экспорт произведений Фикбука в FB2, EPUB, TXT и PDF со встроенными обложками
 // @author         tsuki8neko
 // @match          https://ficbook.net/readfic/*
 // @grant          GM_xmlhttpRequest
+// @connect        ficbook.net
+// @connect        *.ficbook.net
+// @connect        assets.teinon.net
+// @connect        *.teinon.net
+// @connect        cdnjs.cloudflare.com
+// @connect        cdn.jsdelivr.net
+// @connect        unpkg.com
 // @license        Apache-2.0
 // @updateURL      https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
 // @downloadURL    https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/master/ficbook-export.user.js
@@ -17,214 +25,156 @@
 
 
 ;// ./src/core/getTitle.js
-// Извлекает название произведения
+function getTitle(doc = document) {
+    const node =
+        doc.querySelector("h1.heading[itemprop='name']") ||
+        doc.querySelector("h1.heading[itemprop='headline']") ||
+        doc.querySelector("h1.heading") ||
+        doc.querySelector("h1[itemprop='name']");
 
-function getTitle() {
-    return (
-        document.querySelector("h1.heading[itemprop='name']")?.innerText.trim() ||
-        document.querySelector("h1.heading[itemprop='headline']")?.innerText.trim() ||
-        document.querySelector("h1.heading")?.innerText.trim() ||
-        "Фанфик"
-    );
+    return node?.textContent?.trim() || "Фанфик";
 }
 
 ;// ./src/core/getAuthors.js
-/**
- * Извлекает список авторов и соавторов произведения.
- *
- * Роли бывают разными:
- * - автор
- * - бета
- * - гамма
- * - переводчик
- * - редактор
- *
- * Функция собирает все такие блоки и возвращает массив объектов.
- */
-
-function getAuthors() {
-    // Основной блок с информацией о фанфике ("шапка")
-    const hat = document.querySelector(".fanfic-hat-body");
-    // Внутри шапки находятся элементы .creator-info — каждый отвечает за одного участника
-    const creators = hat.querySelectorAll(".creator-info");
-
-    return Array.from(creators).map(c => {
-        const nameNode = c.querySelector(".creator-username");
-        // Узел с ролью (например: "Автор", "Бета", "Переводчик")
-        const roleNode = c.querySelector(".small-text.text-muted");
-
-        return {
-            name: nameNode?.innerText.trim() || "",
-            url: nameNode?.href || "",
-            // Роль автора, приводим к нижнему регистру для единообразия
-            role: roleNode?.innerText.trim().toLowerCase() || "автор"
-        };
-    });
+function absoluteUrl(value) {
+    if (!value) return "";
+    const base = location.origin && location.origin !== "null" ? location.origin : "https://ficbook.net";
+    try { return new URL(value, base).href; } catch (_) { return value; }
 }
 
+function getAuthors(doc = document) {
+    const hat = doc.querySelector(".fanfic-hat-body") || doc;
+    const creators = hat.querySelectorAll(".creator-info");
+
+    return Array.from(creators)
+        .map(c => {
+            const nameNode = c.querySelector(".creator-username");
+            const roleNode = c.querySelector(".small-text.text-muted");
+            const role = roleNode?.textContent?.trim().toLowerCase().replace(/[:：]+$/, "") || "автор";
+
+            return {
+                name: nameNode?.textContent?.trim() || "",
+                url: absoluteUrl(nameNode?.getAttribute("href")),
+                role
+            };
+        })
+        .filter(author => author.name);
+}
 
 ;// ./src/core/getMeta.js
-/**
- * Извлекает дополнительные метаданные произведения из шапки
- *
- * Возвращает:
- * - фэндом(ы)
- * - размер работы в словах
- * - теги
- * - описание
- * - примечания автора
- * - информацию о публикации на других ресурсах
- * - список пейрингов и персонажей
- */
+function getMeta_absoluteUrl(value) {
+    if (!value) return "";
+    const base = location.origin && location.origin !== "null" ? location.origin : "https://ficbook.net";
+    try { return new URL(value, base).href; } catch (_) { return value; }
+}
 
-function getExtraData() {
-
-    // Ищет блок описания по тексту заголовка.
+function getExtraData(doc = document) {
     const findBlock = (label) =>
-        Array.from(document.querySelectorAll(".description .mb-10"))
-            .find(n => n.querySelector("strong")?.innerText.includes(label));
+        Array.from(doc.querySelectorAll(".description .mb-10, .fanfic-hat-body .mb-10"))
+            .find(node => node.querySelector("strong")?.textContent?.includes(label));
 
-    // --- ФЭНДОМ ---
     const fandomBlock = findBlock("Фэндом:");
-    let fandom = fandomBlock
-        ? Array.from(fandomBlock.querySelectorAll("a")).map(a => a.innerText.trim()).join(", ")
+    const fandom = fandomBlock
+        ? Array.from(fandomBlock.querySelectorAll("a"))
+            .map(a => a.textContent.trim())
+            .filter(Boolean)
+            .join(", ")
         : "";
 
-    // --- РАЗМЕР ---
     const sizeBlock = findBlock("Размер:");
-    let size = "";
-    if (sizeBlock) {
-        const match = sizeBlock.innerText.match(/(\d[\d\s]*\d)\s*слов/);
-        size = match ? match[1] : "";
+    const sizeText = sizeBlock?.textContent || "";
+    const sizeMatch = sizeText.match(/(\d[\d\s]*\d|\d)\s*слов/i);
+    const size = sizeMatch ? sizeMatch[1].replace(/\s+/g, " ") : "";
+
+    const tagsNode = doc.querySelector(".description .tags, .fanfic-hat-body .tags");
+    const tags = tagsNode
+        ? Array.from(tagsNode.querySelectorAll("a"))
+            .map(a => a.textContent.trim())
+            .filter(Boolean)
+            .join(", ")
+        : "";
+
+    const description = doc.querySelector(
+        ".description .js-public-beta-description, .fanfic-hat-body .js-public-beta-description"
+    )?.textContent?.trim() || "";
+
+    const notes = doc.querySelector(
+        ".description .js-public-beta-author-comment, .fanfic-hat-body .js-public-beta-author-comment"
+    )?.textContent?.trim() || "";
+
+    const otherPublicationBlock = findBlock("Публикация на других ресурсах:");
+    let otherPublication = "";
+    if (otherPublicationBlock) {
+        const clone = otherPublicationBlock.cloneNode(true);
+        clone.querySelector("strong")?.remove();
+        otherPublication = (clone.textContent || "")
+            .replace(/^\s*[:：]?\s*/, "")
+            .trim();
     }
 
-    // --- ТЕГИ ---
-    const tagsNode = document.querySelector(".description .tags");
-    const tags = tagsNode
-        ? Array.from(tagsNode.querySelectorAll("a")).map(a => a.innerText.trim()).join(", ")
-        : "";
-
-    // --- ОПИСАНИЕ ---
-    const description = document.querySelector(".description .js-public-beta-description")?.innerText.trim() || "";
-
-    // --- ПРИМЕЧАНИЯ ---
-    const notes = document.querySelector(".description .js-public-beta-author-comment")?.innerText.trim() || "";
-
-    // --- ПУБЛИКАЦИЯ НА ДРУГИХ РЕСУРСАХ ---
-    const otherPublicationBlock = findBlock("Публикация на других ресурсах:");
-    const otherPublication = otherPublicationBlock
-        ? otherPublicationBlock.innerText.trim()
-        : "";
-
-    // --- ПЕЙРИНГИ И ПЕРСОНАЖИ ---
-    const pairingBlock =
-        findBlock("Пэйринг и персонажи:") ||
-        findBlock("Пейринг и персонажи:");
-
+    const pairingBlock = findBlock("Пэйринг и персонажи:") || findBlock("Пейринг и персонажи:");
     const pairings = pairingBlock
         ? Array.from(pairingBlock.querySelectorAll("a"))
-            .map(a => a.innerText.trim())
+            .map(a => a.textContent.trim())
             .filter(Boolean)
         : [];
 
-
-    return {
-        fandom,
-        size,
-        tags,
-        description,
-        notes,
-        otherPublication,
-        pairings };
-
+    return { fandom, size, tags, description, notes, otherPublication, pairings };
 }
 
-function getDirectionRatingStatus() {
+function getDirectionRatingStatus(doc = document) {
+    const root = doc.querySelector(".fanfic-badges");
+    if (!root) return { direction: "", rating: "", status: "" };
 
-    /**
-     * Извлекает основные характеристики произведения:
-     * направленность, рейтинг и статус.
-     */
-
-    // For old layout
-    // const direction = document.querySelector(".fanfic-badges .badge-with-icon.direction .badge-text")?.innerText.trim() || "";
-    // const rating = document.querySelector(".fanfic-badges .badge-with-icon[class*='badge-rating'] .badge-text")?.innerText.trim() || "";
-    // const status = document.querySelector(".fanfic-badges .badge-with-icon[class*='badge-status'] .badge-text")?.innerText.trim() || "";
-
-    const root = document.querySelector(".fanfic-badges");
-    if (!root) return {
-        direction: "Направленность не найдена на странице",
-        rating: "Рейтинг не найжен на странице",
-        status: "Статус не найден на странице" };
-
-    // Направленность (Слэш, Джен, Гет и т.п.)
     const directionNode = root.querySelector("[class*='direction']");
+    const direction = directionNode?.querySelector("span")?.textContent?.trim()
+        || directionNode?.textContent?.trim()
+        || "";
 
-    const direction =
-        directionNode?.querySelector("span")?.innerText.trim() ||
-        directionNode?.innerText.trim() ||
-        "";
+    const ratingNode = root.querySelector("[class*='ds-label-rating'], [class*='badge-rating']");
+    const rating = ratingNode?.textContent?.trim() || "";
 
-    // Рейтинг (G, PG-13, R, NC-17…)
-    const ratingNode = root.querySelector("[class*='ds-label-rating']");
-    const rating = ratingNode?.innerText.trim() || "";
-
-    // Статус (В процессе, Завершён, Заморожен…)
-    const statusNode = root.querySelector("[class*='ds-label-status']");
-    const status = statusNode?.innerText.trim() || "";
-
+    const statusNode = root.querySelector("[class*='ds-label-status'], [class*='badge-status']");
+    const status = statusNode?.textContent?.trim() || "";
 
     return { direction, rating, status };
 }
 
-/**
-* Извлекает автора оригинального произведения,
-* если фанфик является адаптацией или переводом.
-*/
-function getOriginalAuthor() {
-    const blocks = document.querySelectorAll(".mb-10");
+function getOriginalAuthor(doc = document) {
+    for (const block of doc.querySelectorAll(".mb-10")) {
+        const label = block.querySelector("strong")?.textContent?.trim() || "";
+        if (!label.startsWith("Автор оригинала")) continue;
 
-    for (const block of blocks) {
-        const strong = block.querySelector("strong");
-        if (!strong) continue;
-
-        if (strong.innerText.trim().startsWith("Автор оригинала")) {
-            const link = block.querySelector("a");
-            return {
-                name: link?.innerText.trim() || "",
-                url: link?.href || ""
-            };
-        }
+        const link = block.querySelector("a");
+        return {
+            name: link?.textContent?.trim() || "",
+            url: getMeta_absoluteUrl(link?.getAttribute("href"))
+        };
     }
-
     return null;
 }
 
-// Извлекает ссылку на оригинальное произведение.
-function getOriginalWork() {
+function getOriginalWork(doc = document) {
+    for (const block of doc.querySelectorAll(".mb-10")) {
+        const label = block.querySelector("strong")?.textContent?.trim() || "";
+        if (!label.startsWith("Оригинал")) continue;
 
-    const blocks = document.querySelectorAll(".mb-10");
+        const link = block.querySelector("a");
+        if (!link) return null;
 
-    for (const block of blocks) {
-        const strong = block.querySelector("strong");
-        if (!strong) continue;
-
-        if (strong.innerText.trim().startsWith("Оригинал")) {
-            const link = block.querySelector("a");
-            if (!link) return null;
-
-            let url = link.href;
-
-            // Если это редирект — извлекаем оригинал
-            if (url.includes("/away?url=")) {
-                const real = url.split("/away?url=")[1];
-                url = decodeURIComponent(real);
+        let url = link.href || link.getAttribute("href") || "";
+        try {
+            const parsed = new URL(url, location.origin && location.origin !== "null" ? location.origin : "https://ficbook.net");
+            if (parsed.pathname.includes("/away") && parsed.searchParams.has("url")) {
+                url = parsed.searchParams.get("url");
+            } else {
+                url = parsed.href;
             }
-
-            return { url };
+        } catch (_) {
+            // Оставляем исходную строку, если URL некорректен.
         }
+        return { url };
     }
-
     return null;
 }
 
@@ -233,146 +183,199 @@ function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-;// ./src/core/getFootnotes.js
-/**
- * getFootnotes. js
- * Извлекает сноски из текста главы и формирует единый список примечаний.
- *
- * span.footnote → превращаем в <footnote-ref>
- * но БЕЗ outerHTML (чтобы не ломать DOM структуру)
- */
-
-function fixHtml(html) {
-    return html
-        .replace(/<br>/g, "<br/>")
-        .replace(/<hr>/g, "<hr/>")
-        .replace(/&nbsp;/g, "&#160;");
+;// ./src/utils/escapeXml.js
+/** Экранирует текст для XML/XHTML. */
+function escapeXml(value = "") {
+    return String(value)
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&apos;");
 }
 
+;// ./src/core/getFootnotes.js
+
+
+/** Заменяет сноски в тексте на нейтральные placeholder-элементы. */
 function extractFootnotes(doc, contentNode, notesMap = {}) {
     const anchors = [...contentNode.querySelectorAll("span.footnote[id]")];
     const notes = [];
 
     anchors.forEach((anchor, index) => {
         const id = anchor.id;
-        const text = notesMap[id];
-        if (!text) return;
+        const rawHtml = notesMap[id];
+        if (!rawHtml) return;
 
         const number = index + 1;
+        const holder = doc.createElement("div");
+        holder.innerHTML = String(rawHtml);
+        const text = (holder.textContent || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
 
-        // ❗ ВАЖНО: НЕ outerHTML
-        // просто превращаем элемент в "placeholder"
         const ref = doc.createElement("footnote-ref");
         ref.setAttribute("id", id);
-        ref.setAttribute("number", number);
-
+        ref.setAttribute("number", String(number));
         anchor.replaceWith(ref);
 
-        notes.push({
-            id,
-            number,
-            html: fixHtml(text)
-        });
+        notes.push({ id, number, text, html: escapeXml(text) });
     });
 
     return notes;
 }
+
 ;// ./src/core/getChapter.js
-/**
- * getChapter.js
- *
- * Возвращает:
- *  title     — заголовок главы
- *  plain     — чистый текст
- *  xhtml     — XHTML для FB2/EPUB
- *  footnotes — сноски
- */
 
 
 
 
-const MAX_ATTEMPTS = 7;
+const MAX_ATTEMPTS = 5;
+const BLOCK_TAGS = new Set(["p", "div", "section", "article", "blockquote", "li", "h1", "h2", "h3", "h4"]);
 
-async function getChapter(url, attempt = 1) {
-    await delay(400 + Math.random() * 300);
+function extractJsonObjectAfterMarker(source, marker) {
+    const markerIndex = source.indexOf(marker);
+    if (markerIndex < 0) return null;
 
-    let res;
-    try {
-        res = await fetch(url, { credentials: "same-origin" });
-    } catch (e) {
-        if (attempt < MAX_ATTEMPTS) {
-            await delay(1000 * attempt);
-            return getChapter(url, attempt + 1);
+    const start = source.indexOf("{", markerIndex + marker.length);
+    if (start < 0) return null;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = start; i < source.length; i++) {
+        const char = source[i];
+
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (char === "\\") escaped = true;
+            else if (char === '"') inString = false;
+            continue;
         }
-        throw e;
+
+        if (char === '"') {
+            inString = true;
+            continue;
+        }
+        if (char === "{") depth++;
+        if (char === "}") {
+            depth--;
+            if (depth === 0) return source.slice(start, i + 1);
+        }
     }
 
-    const html = await res.text();
+    return null;
+}
 
+function serializeText(node) {
+    if (!node) return "";
+    if (node.nodeType === Node.TEXT_NODE) return escapeXml(node.nodeValue || "");
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+
+    const tag = node.tagName.toLowerCase();
+    if (["script", "style", "noscript"].includes(tag)) return "";
+    if (tag === "br") return "\n";
+    if (tag === "footnote-ref") {
+        return `<footnote-ref id="${escapeXml(node.getAttribute("id") || "")}" number="${escapeXml(node.getAttribute("number") || "")}"></footnote-ref>`;
+    }
+
+    const inner = Array.from(node.childNodes).map(serializeText).join("");
+    return BLOCK_TAGS.has(tag) ? `\n${inner}\n` : inner;
+}
+
+function normalizeSerializedLine(line) {
+    return line
+        .replace(/\u00a0/g, " ")
+        .replace(/[ \t]+/g, " ")
+        .replace(/\s+(<footnote-ref)/g, " $1")
+        .replace(/(<\/footnote-ref>)\s+/g, "$1 ")
+        .trim();
+}
+
+function xmlLineToPlain(line) {
+    const withRefs = line.replace(
+        /<footnote-ref[^>]*number=["'](\d+)["'][^>]*><\/footnote-ref>/g,
+        "[$1]"
+    );
+    const parsed = new DOMParser().parseFromString(`<root>${withRefs}</root>`, "application/xml");
+    return parsed.querySelector("parsererror") ? withRefs.replace(/<[^>]+>/g, "") : parsed.documentElement.textContent;
+}
+
+function buildChapterText(contentNode) {
+    const serialized = serializeText(contentNode);
+    const lines = serialized
+        .split(/\n+/)
+        .map(normalizeSerializedLine)
+        .filter(Boolean);
+
+    return {
+        xhtml: lines.map(line => `<p>${line}</p>`).join("\n"),
+        plain: lines.map(xmlLineToPlain).join("\n\n")
+    };
+}
+
+async function getChapter(url, options = {}, attempt = 1) {
+    const isCancelled = options.isCancelled || (() => false);
+    if (isCancelled()) throw new Error("cancelled");
+
+    await delay(350 + Math.random() * 250);
+    if (isCancelled()) throw new Error("cancelled");
+
+    let response;
+    try {
+        response = await fetch(url, { credentials: "same-origin" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    } catch (error) {
+        if (attempt < MAX_ATTEMPTS && !isCancelled()) {
+            await delay(900 * attempt + Math.random() * 400);
+            return getChapter(url, options, attempt + 1);
+        }
+        throw error;
+    }
+
+    const html = await response.text();
     const looksEmpty =
         !html ||
         html.length < 500 ||
-        html.includes("cf-browser-verification") ||
-        html.includes("Cloudflare") ||
-        html.includes("Too Many Requests") ||
-        html.includes("<title>429") ||
-        html.includes("<title>502");
+        /cf-browser-verification|Cloudflare|Too Many Requests|<title>429|<title>502/i.test(html);
 
     if (looksEmpty) {
-        if (attempt < MAX_ATTEMPTS) {
-            await delay(1200 * attempt + Math.random() * 500);
-            return getChapter(url, attempt + 1);
+        if (attempt < MAX_ATTEMPTS && !isCancelled()) {
+            await delay(1100 * attempt + Math.random() * 500);
+            return getChapter(url, options, attempt + 1);
         }
-        throw new Error(`Не удалось загрузить ${url}: пустой HTML`);
+        throw new Error(`Не удалось загрузить ${url}: пустой или служебный HTML`);
     }
 
+    if (isCancelled()) throw new Error("cancelled");
     const doc = new DOMParser().parseFromString(html, "text/html");
-
-    // -----------------------------
-    // Заголовок
-    // -----------------------------
     const title =
-        doc.querySelector(".title-area h2, .part-title h3, .part-title h2, .part-title")?.textContent.trim() ||
+        doc.querySelector(".title-area h2, .part-title h3, .part-title h2, .part-title")?.textContent?.trim() ||
         "Глава";
 
-    // -----------------------------
-    // Основной текст
-    // -----------------------------
     let contentNode =
         doc.querySelector(".part_text") ||
         doc.querySelector("#content .part_text") ||
-        doc.querySelector("[itemprop='articleBody']") ||
-        null;
+        doc.querySelector("[itemprop='articleBody']");
 
-    // fallback — ищем самый большой текстовый блок
     if (!contentNode) {
         let best = null;
         let bestScore = 0;
-
-        const blocks = doc.querySelectorAll("div, article, section");
-        for (const el of blocks) {
-            const text = (el.textContent || "").replace(/\s+/g, " ").trim();
+        for (const element of doc.querySelectorAll("div, article, section")) {
+            const text = (element.textContent || "").replace(/\s+/g, " ").trim();
             if (text.length < 200) continue;
-
-            const cls = el.className || "";
-            if (/header|footer|menu|nav|comment|promo|settings|captcha/i.test(cls)) continue;
-
+            const className = String(element.className || "");
+            if (/header|footer|menu|nav|comment|promo|settings|captcha/i.test(className)) continue;
             if (text.length > bestScore) {
+                best = element;
                 bestScore = text.length;
-                best = el;
             }
         }
-
         contentNode = best;
     }
 
-    if (!contentNode) {
-        throw new Error(`Не найден текст главы: ${url}`);
-    }
+    if (!contentNode) throw new Error(`Не найден текст главы: ${url}`);
 
-    // -----------------------------
-    // Чистка мусора
-    // -----------------------------
     contentNode.querySelectorAll(`
         .js-text-settings,
         .js-text-settings-collapse-button,
@@ -384,141 +387,412 @@ async function getChapter(url, attempt = 1) {
         .ad,
         .promo,
         .chapter-time
-    `.replace(/\s+/g, " ")).forEach(el => el.remove());
+    `.replace(/\s+/g, " ")).forEach(element => element.remove());
 
-    // -----------------------------
-    // Плоский текст
-    // -----------------------------
-    const plain = (contentNode.textContent || "")
-        .replace(/\u00a0/g, " ")
-        .replace(/[ \t]+/g, " ")
-        .trim();
-
-    // -----------------------------
-    // Сноски
-    // -----------------------------
-    const footnotesMatch = html.match(/\s+textFootnotes\s*=\s*({.*?})/);
-    const notesMap = footnotesMatch ? JSON.parse(footnotesMatch[1]) : {};
-    const footnotes = extractFootnotes(doc, contentNode, notesMap);
-
-    // -----------------------------
-    // XHTML (простая, но чистая)
-    // -----------------------------
-    function buildXhtml(node) {
-        const blocks = [];
-
-        const push = (txt) => {
-            const t = txt.trim();
-            if (t) blocks.push(`<p>${t}</p>`);
-        };
-
-        const processText = (text) => {
-            // нормализуем пробелы
-            text = text.replace(/\u00a0/g, " ");
-
-            // разбиваем по переносам строк
-            const lines = text.split(/\n+/);
-
-            for (let line of lines) {
-                line = line.trim();
-                if (!line) continue;
-
-                // если строка начинается с "—", делаем отдельный абзац
-                if (/^—\s*/.test(line)) {
-                    push(line);
-                    continue;
-                }
-
-                push(line);
-            }
-        };
-
-        const walk = (n) => {
-            if (!n) return;
-
-            if (n.nodeType === Node.TEXT_NODE) {
-                processText(n.nodeValue);
-                return;
-            }
-
-            if (n.nodeType !== Node.ELEMENT_NODE) return;
-
-            const tag = n.tagName.toLowerCase();
-
-            if (tag === "br") {
-                blocks.push(`<p></p>`);
-                return;
-            }
-
-            if (["p", "div", "section", "article"].includes(tag)) {
-                const html = n.innerHTML
-                    .replace(/<br\s*\/?>/gi, "\n")
-                    .replace(/<\/p>/gi, "\n");
-
-                processText(html);
-                return;
-            }
-
-            n.childNodes.forEach(walk);
-        };
-
-        walk(node);
-
-        return blocks.join("\n");
+    let notesMap = {};
+    const notesJson = extractJsonObjectAfterMarker(html, "textFootnotes");
+    if (notesJson) {
+        try {
+            notesMap = JSON.parse(notesJson);
+        } catch (error) {
+            console.warn("Не удалось разобрать сноски главы:", url, error);
+        }
     }
 
+    const footnotes = extractFootnotes(doc, contentNode, notesMap);
+    const { plain, xhtml } = buildChapterText(contentNode);
+    return { title, plain, xhtml, footnotes };
+}
 
-    const xhtml = buildXhtml(contentNode);
+;// ./src/core/getCover.js
+const COVER_SELECTORS = [
+    // Сначала берём крупную картинку из фактического блока обложки.
+    ".fanfic-hat-cover picture img",
+    ".fanfic-hat-cover img",
+    ".fanfic-cover picture img",
+    ".fanfic-cover img",
+    "img[itemprop='image']",
+    "[itemprop='image'] img",
+    ".fanfic-hat-body img[class*='cover']",
+    "img[class*='fanfic'][class*='cover']",
+    // Open Graph остаётся резервным вариантом: на Ficbook там часто уменьшенная m_-версия.
+    "meta[property='og:image']",
+    "meta[name='twitter:image']"
+];
 
+function candidateFromNode(node) {
+    if (!node) return "";
+    if (node.tagName?.toLowerCase() === "meta") return node.getAttribute("content") || "";
+
+    const srcset = node.getAttribute("srcset") || node.getAttribute("data-srcset") || "";
+    if (srcset) {
+        const candidates = srcset
+            .split(",")
+            .map(part => {
+                const [url, descriptor = ""] = part.trim().split(/\s+/, 2);
+                const score = descriptor.endsWith("w")
+                    ? Number.parseFloat(descriptor)
+                    : descriptor.endsWith("x")
+                        ? Number.parseFloat(descriptor) * 10000
+                        : 0;
+                return { url, score: Number.isFinite(score) ? score : 0 };
+            })
+            .filter(item => item.url);
+        candidates.sort((a, b) => b.score - a.score);
+        if (candidates[0]?.url) return candidates[0].url;
+    }
+
+    return node.getAttribute("data-src") || node.getAttribute("src") || "";
+}
+
+function getCover_absoluteUrl(value, doc = document) {
+    if (!value) return "";
+    try {
+        const fallbackBase = location.origin && location.origin !== "null"
+            ? location.origin
+            : "https://ficbook.net";
+        const base = doc.baseURI && doc.baseURI !== "about:blank" ? doc.baseURI : fallbackBase;
+        return new URL(value, base).href;
+    } catch (_) {
+        return "";
+    }
+}
+
+function findCoverUrl(doc = document) {
+    for (const selector of COVER_SELECTORS) {
+        const value = candidateFromNode(doc.querySelector(selector));
+        if (!value || value.startsWith("data:")) continue;
+
+        const href = getCover_absoluteUrl(value, doc);
+        if (!href) continue;
+
+        try {
+            const url = new URL(href);
+            if (/avatar|logo|favicon|default[-_]?cover|no[-_]?cover/i.test(url.pathname)) continue;
+            return url.href;
+        } catch (_) {
+            // Пробуем следующий селектор.
+        }
+    }
+    return "";
+}
+
+function headerValue(headers, name) {
+    const match = String(headers || "").match(new RegExp(`^${name}:\\s*(.+)$`, "im"));
+    return match?.[1]?.trim() || "";
+}
+
+function gmRequestBlob(url) {
+    return new Promise((resolve, reject) => {
+        const request = globalThis.GM_xmlhttpRequest || globalThis.GM?.xmlHttpRequest;
+        if (!request) {
+            reject(new Error("GM_xmlhttpRequest недоступен"));
+            return;
+        }
+
+        request({
+            method: "GET",
+            url,
+            responseType: "arraybuffer",
+            timeout: 30000,
+            onload: response => {
+                if (response.status < 200 || response.status >= 300 || !response.response) {
+                    reject(new Error(`HTTP ${response.status}`));
+                    return;
+                }
+
+                const contentType = headerValue(response.responseHeaders, "content-type") || "application/octet-stream";
+                resolve(new Blob([response.response], { type: contentType }));
+            },
+            onerror: () => reject(new Error("Ошибка загрузки обложки")),
+            ontimeout: () => reject(new Error("Тайм-аут загрузки обложки"))
+        });
+    });
+}
+
+async function fetchBlob(url) {
+    // Сначала пробуем GM-запрос: он не зависит от CORS страницы Ficbook.
+    try {
+        return await gmRequestBlob(url);
+    } catch (gmError) {
+        try {
+            const response = await fetch(url, { credentials: "omit", mode: "cors" });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return await response.blob();
+        } catch (fetchError) {
+            throw new Error(`Не удалось скачать обложку: ${gmError.message}; ${fetchError.message}`);
+        }
+    }
+}
+
+function loadImage(blob) {
+    return new Promise((resolve, reject) => {
+        const objectUrl = URL.createObjectURL(blob);
+        const image = new Image();
+        image.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            resolve(image);
+        };
+        image.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error("Браузер не смог декодировать изображение"));
+        };
+        image.src = objectUrl;
+    });
+}
+
+function canvasToBlob(canvas, type, quality) {
+    return new Promise((resolve, reject) => {
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Не удалось преобразовать обложку")), type, quality);
+    });
+}
+
+async function normalizeToJpeg(blob) {
+    const image = await loadImage(blob);
+    const maxWidth = 1600;
+    const maxHeight = 2400;
+    const scale = Math.min(1, maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) throw new Error("Canvas 2D недоступен");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+
+    return { blob: await canvasToBlob(canvas, "image/jpeg", 0.9), width, height };
+}
+
+function bytesToBase64(bytes) {
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    return btoa(binary);
+}
+
+async function getCover(doc = document) {
+    const sourceUrl = findCoverUrl(doc);
+    if (!sourceUrl) return null;
+
+    try {
+        const originalBlob = await fetchBlob(sourceUrl);
+        const normalized = await normalizeToJpeg(originalBlob);
+        const bytes = new Uint8Array(await normalized.blob.arrayBuffer());
+        const base64 = bytesToBase64(bytes);
+
+        return {
+            sourceUrl,
+            blob: normalized.blob,
+            bytes,
+            base64,
+            dataUrl: `data:image/jpeg;base64,${base64}`,
+            mediaType: "image/jpeg",
+            fileName: "cover.jpg",
+            width: normalized.width,
+            height: normalized.height
+        };
+    } catch (error) {
+        console.warn("Обложка найдена, но не добавлена:", sourceUrl, error);
+        return null;
+    }
+}
+
+;// ./src/core/collectBook.js
+
+
+
+
+
+
+
+function currentWorkUrl() {
+    const url = new URL(location.href);
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts[0] !== "readfic" || !parts[1]) throw new Error("Откройте страницу произведения или главы Ficbook.");
+    return new URL(`/readfic/${parts[1]}`, url.origin).href;
+}
+
+async function loadWorkDocument(workUrl) {
+    const current = new URL(location.href);
+    const work = new URL(workUrl);
+    if (current.pathname.replace(/\/$/, "") === work.pathname.replace(/\/$/, "")) return document;
+
+    const response = await fetch(workUrl, { credentials: "same-origin" });
+    if (!response.ok) throw new Error(`Не удалось загрузить страницу произведения: HTTP ${response.status}`);
+    const html = await response.text();
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    if (!doc.querySelector(".fanfic-hat-body, h1.heading")) {
+        throw new Error("Страница произведения загружена, но её структура не распознана.");
+    }
+    return doc;
+}
+
+function isRole(author, role) {
+    return author.role === role;
+}
+
+function extractSeries(doc) {
+    const link = doc.querySelector(".mb-10 a[href^='/series/']");
+    if (!link) return null;
     return {
-        title,
-        plain,
-        xhtml,
-        footnotes
+        name: link.textContent?.trim() || "",
+        url: new URL(link.getAttribute("href"), location.origin && location.origin !== "null" ? location.origin : "https://ficbook.net").href
     };
 }
 
+function extractChapterUrls(doc, workUrl) {
+    const urls = Array.from(doc.querySelectorAll(".list-of-fanfic-parts .part-link"))
+        .map(link => link.getAttribute("href") || link.href || "")
+        .filter(Boolean)
+        .map(href => new URL(href, workUrl).href.split("#")[0])
+        .filter(href => {
+            if (href.includes("/all-parts")) return false;
+            const last = new URL(href).pathname.split("/").filter(Boolean).pop();
+            return /^\d+$/.test(last || "");
+        });
+
+    return [...new Set(urls.length ? urls : [workUrl])];
+}
+
+async function loadChapters(urls, onProgress, isCancelled) {
+    const results = new Array(urls.length).fill(null);
+    let pending = urls.map((_, index) => index);
+    const maxAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxAttempts && pending.length; attempt++) {
+        const failed = [];
+
+        for (const index of pending) {
+            if (isCancelled()) throw new Error("cancelled");
+            onProgress(index + 1, urls.length);
+
+            if (attempt > 1) await delay(700 + Math.random() * 500);
+
+            try {
+                results[index] = {
+                    ...(await getChapter(urls[index], { isCancelled })),
+                    url: urls[index],
+                    number: index + 1
+                };
+            } catch (error) {
+                if (error.message === "cancelled") throw error;
+                console.warn(
+                    `Не удалось загрузить главу (попытка ${attempt}/${maxAttempts}):`,
+                    urls[index],
+                    error
+                );
+                failed.push(index);
+            }
+        }
+
+        pending = failed;
+    }
+
+    if (pending.length) {
+        const failedLines = pending
+            .map(index => `${index + 1}. ${urls[index]}`)
+            .join("\n");
+        const error = new Error(
+            `Не удалось загрузить ${pending.length} из ${urls.length} глав после трёх попыток.\n\n` +
+            "Файл не создан, чтобы не сохранять неполный текст. Повторите экспорт позже.\n\n" +
+            `Проблемные главы:\n${failedLines}`
+        );
+        error.name = "IncompleteBookError";
+        error.failedUrls = pending.map(index => urls[index]);
+        throw error;
+    }
+
+    return results;
+}
+
+async function collectBook(onProgress = () => {}, isCancelled = () => false) {
+    const workUrl = currentWorkUrl();
+    const doc = await loadWorkDocument(workUrl);
+
+    const title = getTitle(doc);
+    const authors = getAuthors(doc);
+    const originalAuthor = getOriginalAuthor(doc);
+    const originalWork = getOriginalWork(doc);
+    const translators = authors.filter(author => isRole(author, "переводчик"));
+    const mainAuthor = authors.find(author => isRole(author, "автор")) || originalAuthor || translators[0] || null;
+
+    if (!mainAuthor) throw new Error("Автор не найден. Возможно, Ficbook изменил разметку страницы.");
+
+    const meta = {
+        title,
+        authors,
+        mainAuthor,
+        coauthors: authors.filter(author => isRole(author, "соавтор")),
+        translators,
+        betas: authors.filter(author => isRole(author, "бета")),
+        gammas: authors.filter(author => isRole(author, "гамма")),
+        originalAuthor,
+        originalWork,
+        ...getExtraData(doc),
+        ...getDirectionRatingStatus(doc),
+        series: extractSeries(doc),
+        sourceUrl: workUrl
+    };
+
+    const cover = await getCover(doc);
+    if (isCancelled()) throw new Error("cancelled");
+    const chapterUrls = extractChapterUrls(doc, workUrl);
+    const chapters = await loadChapters(chapterUrls, onProgress, isCancelled);
+
+    if (!chapters.length) throw new Error("Не удалось загрузить главы произведения.");
+    return { meta, cover, chapters };
+}
 
 ;// ./src/utils/generateFileName.js
-/**
- * generateFileName.js Формирует базовое имя файла для экспорта.
- *
- * Итоговый формат:
- * author_-_title
- *
- * Используется для:
- * - FB2 файла
- * - EPUB файла
- * - архива экспортов
+/** Подготавливает безопасную часть имени файла для Windows/macOS/Linux.
+    * Итоговый формат:
+    * author_-_title
  */
+function sanitizeFilePart(value, fallback = "Без_названия") {
+    let result = String(value || "")
+        .normalize("NFC")
+        .replace(/[\u0000-\u001F\u007F]/g, "")
+        .replace(/[\\/:*?"<>|]+/g, "")
+        .replace(/\s+/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/[ ._]+$/g, "")
+        .replace(/^[ ._]+/g, "")
+        .slice(0, 110);
 
-function sanitizeFilePart(str) {
-    return str.replace(/\s+/g, "_").replace(/[\\/:*?"<>|]+/g, "");
+    if (!result) result = fallback;
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(result)) result = `_${result}`;
+    return result;
 }
 
 function generateFileBaseName(mainAuthorName, title) {
-    return `${sanitizeFilePart(mainAuthorName)}_-_${sanitizeFilePart(title)}`;
+    return `${sanitizeFilePart(mainAuthorName, "UnknownAuthor")}_-_${sanitizeFilePart(title)}`;
 }
 
-;// ./src/utils/escapeXml.js
-/**
- * Экранирует специальные символы XML.
- *
- * Нужно для безопасной вставки текста в:
- * - FB2
- * - EPUB
- * - XHTML
- *
- * Иначе документ может стать невалидным XML.
- */
+;// ./src/utils/download.js
+function downloadBlob(blob, fileName) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
 
-function escapeXml(str) {
-    return str
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&apos;");
+;// ./src/utils/id.js
+function createBookId() {
+    if (globalThis.crypto?.randomUUID) {
+        return globalThis.crypto.randomUUID();
+    }
+    return `${Date.now()}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`;
 }
 
 ;// ./src/utils/textToParagraphs.js
@@ -529,8 +803,6 @@ function escapeXml(str) {
  * - удаляет пустые строки
  * - экранирует XML-символы
  * - оборачивает каждую строку в <p>
- *
- * Генерация тела текста.
  */
 
 
@@ -544,185 +816,98 @@ function textToParagraphs(text) {
 }
 
 ;// ./src/fb2/fb2Header.js
-/**
- * fb2Header.js Формирует FB2 заголовок на основе метаданных произведения
- *
- * Сюда входят:
- * - информация об авторах (основной, соавторы, переводчики и т.д.)
- * - метаданные фанфика (фэндом, рейтинг, статус, размер)
- * - описание и примечания
- * - ссылки на оригинал и источник
- * - служебная информация FB2 (дата, id, язык)
- */
 
 
 
+function personXml(person) {
+    if (!person) return "";
+    return `
+            <author>
+                <nickname>${escapeXml(person.name)}</nickname>
+                ${person.url ? `<home-page>${escapeXml(person.url)}</home-page>` : ""}
+            </author>`;
+}
 
-function buildFb2Header({
-                                   title,
-                                   mainAuthor,
-                                   coauthors,
-                                   originalAuthor,
-                                   originalWork,
-                                   translators,
-                                   betas,
-                                   gammas,
-                                   direction,
-                                   rating,
-                                   size,
-                                   status,
-                                   tags,
-                                   description,
-                                   notes,
-                                   otherPublication,
-                                   fandom,
-                                   pairings,
-                                   series
-                               }) {
+function annotationPerson(label, people) {
+    if (!people?.length) return "";
+    const value = people.map(person => person.url
+        ? `${escapeXml(person.name)} (${escapeXml(person.url)})`
+        : escapeXml(person.name)
+    ).join(", ");
+    return `<p><strong>${escapeXml(label)}:</strong> ${value}</p>`;
+}
+
+function buildFb2Header({ meta, cover, bookId }) {
+    const {
+        title, mainAuthor, coauthors, originalAuthor, originalWork, translators,
+        betas, gammas, direction, rating, size, status, tags, description,
+        notes, otherPublication, fandom, pairings, series, sourceUrl
+    } = meta;
+    const today = new Date();
+    const isoDate = today.toISOString().split("T")[0];
 
     return `<?xml version="1.0" encoding="utf-8"?>
-<FictionBook 
-    xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" 
-    xmlns:xlink="http://www.w3.org/1999/xlink">
-
-    <stylesheet type="text/css">
-        .body{font-family : Verdana, Geneva, Arial, Helvetica, sans-serif;}
-        .p{margin:0.5em 0 0 0.3em; padding:0.2em; text-align:justify;}
-    </stylesheet>
-
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:xlink="http://www.w3.org/1999/xlink">
     <description>
         <title-info>
-
-            <author>
-                <username>${escapeXml(mainAuthor.name)}</username>
-                <first-name>${escapeXml(mainAuthor.name)}</first-name>
-                <home-page>${escapeXml(mainAuthor.url)}</home-page>
-            </author>
-
+            <genre>prose_contemporary</genre>
+            ${personXml(mainAuthor)}
+            ${(coauthors || []).map(personXml).join("\n")}
             <book-title>${escapeXml(title)}</book-title>
-
             <annotation>
-
-                <p><strong>Ссылка на работу:</strong> ${escapeXml(location.href)}</p>
-                <p><strong>Направленность:</strong> ${escapeXml(direction)}</p>
-
-                ${mainAuthor
-        ? `<p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)} (${escapeXml(mainAuthor.url)})</p>`
-        : `<p><strong>Автор:</strong> Оригинальный автор неизвестен</p>`
-    }
-
-                ${originalAuthor && mainAuthor?.name !== originalAuthor.name
-        ? `<p><strong>Автор оригинала:</strong> ${escapeXml(originalAuthor.name)} (${escapeXml(originalAuthor.url)})</p>`
-        : ""
-    }
-
-                ${originalWork
-        ? `<p><strong>Оригинал:</strong> ${escapeXml(originalWork.url)}</p>`
-        : ""
-    }
-
-                ${translators?.length
-        ? `<p><strong>Переводчик:</strong> ${
-            translators.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-        }</p>`
-        : ""
-    }
-
-                ${coauthors?.length
-        ? `<p><strong>Соавторы:</strong> ${
-            coauthors.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-        }</p>`
-        : ""
-    }
-
-                ${betas?.length
-        ? `<p><strong>Бета:</strong> ${
-            betas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-        }</p>`
-        : ""
-    }
-
-                ${gammas?.length
-        ? `<p><strong>Гамма:</strong> ${
-            gammas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-        }</p>`
-        : ""
-    }
-
-                ${series
-        ? `<p><strong>Серия:</strong> ${escapeXml(series.name)} (${escapeXml(series.url)})</p>`
-        : ""
-    }
-
-                <p><strong>Фэндом:</strong> ${escapeXml(fandom || "")}</p>
-
-                ${pairings?.length
-        ? `<p><strong>Пейринг и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>`
-        : ""
-    }
-
-                <p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>
-                <p><strong>Размер:</strong> ${escapeXml(size)} слов</p>
-                <p><strong>Статус:</strong> ${escapeXml(status)}</p>
-                <p><strong>Метки:</strong> ${escapeXml(tags || "")}</p>
-
-                <p></p>
-
-                <p><strong>Описание:</strong></p>
-                ${textToParagraphs(description || "")}
-
-                <p></p>
-
-                <p><strong>Примечания:</strong></p>
-                ${textToParagraphs(notes || "")}
-
-                <p><strong>Публикация на других ресурсах:</strong> ${escapeXml(otherPublication || "")}</p>
-
+                <p><strong>Ссылка на работу:</strong> ${escapeXml(sourceUrl)}</p>
+                ${direction ? `<p><strong>Направленность:</strong> ${escapeXml(direction)}</p>` : ""}
+                ${mainAuthor ? `<p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)}${mainAuthor.url ? ` (${escapeXml(mainAuthor.url)})` : ""}</p>` : ""}
+                ${originalAuthor && originalAuthor.name !== mainAuthor?.name ? `<p><strong>Автор оригинала:</strong> ${escapeXml(originalAuthor.name)}${originalAuthor.url ? ` (${escapeXml(originalAuthor.url)})` : ""}</p>` : ""}
+                ${originalWork?.url ? `<p><strong>Оригинал:</strong> ${escapeXml(originalWork.url)}</p>` : ""}
+                ${annotationPerson("Переводчик", translators)}
+                ${annotationPerson("Соавторы", coauthors)}
+                ${annotationPerson("Бета", betas)}
+                ${annotationPerson("Гамма", gammas)}
+                ${series ? `<p><strong>Серия:</strong> ${escapeXml(series.name)}${series.url ? ` (${escapeXml(series.url)})` : ""}</p>` : ""}
+                ${fandom ? `<p><strong>Фэндом:</strong> ${escapeXml(fandom)}</p>` : ""}
+                ${pairings?.length ? `<p><strong>Пейринги и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>` : ""}
+                ${rating ? `<p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>` : ""}
+                ${size ? `<p><strong>Размер:</strong> ${escapeXml(size)} слов</p>` : ""}
+                ${status ? `<p><strong>Статус:</strong> ${escapeXml(status)}</p>` : ""}
+                ${tags ? `<p><strong>Метки:</strong> ${escapeXml(tags)}</p>` : ""}
+                ${description ? `<p><strong>Описание:</strong></p>${textToParagraphs(description)}` : ""}
+                ${notes ? `<p><strong>Примечания:</strong></p>${textToParagraphs(notes)}` : ""}
+                ${otherPublication ? `<p><strong>Публикация на других ресурсах:</strong> ${escapeXml(otherPublication)}</p>` : ""}
             </annotation>
-
-            <date value="${new Date().toISOString().split("T")[0]}">${new Date().toLocaleDateString()}</date>
+            ${tags ? `<keywords>${escapeXml(tags)}</keywords>` : ""}
+            <date value="${isoDate}">${today.toLocaleDateString("ru-RU")}</date>
+            ${cover ? `<coverpage><image xlink:href="#${cover.fileName}"/></coverpage>` : ""}
             <lang>ru</lang>
-
+            ${series?.name ? `<sequence name="${escapeXml(series.name)}"/>` : ""}
         </title-info>
-
         <document-info>
-            <program-used>https://ficbook.net</program-used>
-            <date value="${new Date().toISOString()}">${new Date().toLocaleString()}</date>
-            <src-url>${escapeXml(location.href)}</src-url>
-            <id>${Date.now()}</id>
+            <author><nickname>Ficbook Exporter</nickname></author>
+            <program-used>Ficbook Exporter</program-used>
+            <date value="${today.toISOString()}">${today.toLocaleString("ru-RU")}</date>
+            <src-url>${escapeXml(sourceUrl)}</src-url>
+            <id>${escapeXml(bookId)}</id>
+            <version>2.0</version>
         </document-info>
     </description>
 `;
 }
 
 ;// ./src/fb2/fb2Toc.js
-/**
- * Формирует оглавление FB2-книги.
- * Каждая глава превращается в ссылку вида:
- * <a xlink:href="#id">Название</a>
- * Это позволяет навигацию внутри FB2-файла.
- */
+
 
 function buildFb2Toc(tocEntries) {
     return `
 <body name="toc">
     <section>
         <title><p>Оглавление</p></title>
-        ${tocEntries.map(ch => `
-        <p><a xlink:href="#${ch.id}">${ch.title}</a></p>
-        `).join("")}
+        ${tocEntries.map(ch => `<p><a xlink:href="#${escapeXml(ch.id)}">${escapeXml(ch.title)}</a></p>`).join("\n")}
     </section>
 </body>
 `;
 }
 
 ;// ./src/fb2/fb2Body.js
-/**
- * fb2Body Формирует тело FB2-книги.
- * Вставляется уже готовая разметка глав (fb2Chapters),
- * которая была собрана ранее из парсинга текста.
- */
-
 function buildFb2Body(fb2Chapters) {
     return `
 <body>
@@ -732,17 +917,6 @@ ${fb2Chapters}
 }
 
 ;// ./src/fb2/fb2Builder.js
-/**
- * fb2Builder.js — основной пайплайн сборки книги.
- *
- * Отвечает за:
- * - загрузку глав
- * - сбор метаданных (авторы, фэндом, рейтинг и т.д.)
- * - обработку сносок
- * - формирование FB2 (header + toc + body + notes)
- * - повторные попытки загрузки глав
- * - скачивание готового файла
- */
 
 
 
@@ -752,369 +926,239 @@ ${fb2Chapters}
 
 
 
-
-
-
-
-
-// Приведение HTML-сущностей к FB2-совместимому виду
-function cleanHtmlEntitiesForFb2(text) {
-    if (!text) return text;
-
-    return text
-        .replace(/&nbsp;/g, " ")
-        .replace(/&mdash;/g, "—")
-        .replace(/&ndash;/g, "–")
-        .replace(/&hellip;/g, "…")
-        .replace(/&laquo;/g, "«")
-        .replace(/&raquo;/g, "»")
-        .replace(/&copy;/g, "©")
-        .replace(/&reg;/g, "®")
-        .replace(/&bull;/g, "•")
-        .replace(/&middot;/g, "·")
-        // удаляем любые неизвестные сущности
-        .replace(/&([a-zA-Z0-9]+);/g, "$1");
+function escapeRegExp(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function renderFb2Footnotes(chapter, globalIndexRef) {
+    let content = chapter.xhtml;
+    const notes = [];
 
-// FB2: преобразование <footnote-ref/> в FB2-сноски со сквозной нумерацией
-function renderFb2Footnotes(xhtml, footnotes, globalIndexRef) {
-    if (!footnotes || !footnotes.length) {
-        return { content: xhtml, notes: [] };
+    for (const note of chapter.footnotes || []) {
+        const number = globalIndexRef.value++;
+        const targetId = `note_${chapter.number}_${note.id}`;
+        const refPattern = new RegExp(
+            `<footnote-ref[^>]*id=["']${escapeRegExp(note.id)}["'][^>]*>(?:<\\/footnote-ref>)?`,
+            "g"
+        );
+        content = content.replace(refPattern, `<a xlink:href="#${escapeXml(targetId)}" type="note">[${number}]</a>`);
+        notes.push({ id: targetId, number, html: note.html });
     }
 
-    let content = xhtml;
-    let notes = [];
-
-    footnotes.forEach(n => {
-        const globalNumber = globalIndexRef.value++;
-
-        // Самозакрывающийся <footnote-ref .../>
-        const reSelfClosing = new RegExp(
-            `<footnote-ref[^>]*id=["']${n.id}["'][^>]*\\/?>`,
-            "g"
-        );
-
-        // Полный <footnote-ref ...>...</footnote-ref>
-        const reFull = new RegExp(
-            `<footnote-ref[^>]*id=["']${n.id}["'][^>]*>[\\s\\S]*?<\\/footnote-ref>`,
-            "g"
-        );
-
-        // Заменяем оба варианта
-        content = content
-            .replace(reSelfClosing, `<a xlink:href="#note_${n.id}" type="note">[${globalNumber}]</a>`)
-            .replace(reFull, `<a xlink:href="#note_${n.id}" type="note">[${globalNumber}]</a>`);
-
-        notes.push({
-            id: n.id,
-            number: globalNumber,
-            html: cleanHtmlEntitiesForFb2(n.html)
-        });
-    });
-
-    // Удаляем ВСЕ оставшиеся </footnote-ref>, если сайт вставил их криво
-    content = content.replace(/<\/footnote-ref>/g, "");
-
+    content = content.replace(/<\/?footnote-ref[^>]*>/g, "");
     return { content, notes };
 }
 
-/**
- * Основная функция генерации FB2-файла.
- *
- * Пайплайн:
- * 1. загрузка основной страницы фанфика
- * 2. сбор метаданных (авторы, фэндом, серия и т.д.)
- * 3. получение списка глав
- * 4. загрузка каждой главы
- * 5. обработка сносок
- * 6. повторная попытка неудачных глав
- * 7. сбор FB2 (header + toc + body + notes)
- * 8. скачивание файла
- */
 async function createFB2(onProgress = () => {}, isCancelled = () => false) {
+    const book = await collectBook(onProgress, isCancelled);
+    const { meta, cover, chapters } = book;
+    const bookId = createBookId();
+    const globalFootnoteIndex = { value: 1 };
+    const allNotes = [];
+    const tocEntries = [];
+    let chapterXml = "";
 
-    // ---------------------------------------------------------
-    // Загружаем страницу фика в скрытый iframe, если мы на странице главы
-    // ---------------------------------------------------------
-    async function loadFicMainPageIfNeeded() {
-        const url = new URL(location.href);
-        const parts = url.pathname.split("/").filter(Boolean);
-
-        if (parts.length === 2 && parts[0] === "readfic") {
-            return document;
-        }
-
-        if (parts.length === 3 && parts[0] === "readfic") {
-            const ficId = parts[1];
-            const ficUrl = `https://ficbook.net/readfic/${ficId}`;
-
-            return new Promise((resolve, reject) => {
-                const iframe = document.createElement("iframe");
-                iframe.style.display = "none";
-                iframe.src = ficUrl;
-
-                iframe.onload = () => {
-                    try {
-                        resolve(iframe.contentDocument);
-                    } catch (e) {
-                        reject(e);
-                    }
-                };
-
-                document.body.appendChild(iframe);
-            });
-        }
-
-        return document;
-    }
-
-    const ficDoc = await loadFicMainPageIfNeeded();
-
-
-    // ---------------------------------------------------------
-    // METADATA
-    // ---------------------------------------------------------
-    const title = getTitle();
-    const authors = getAuthors();
-    if (!authors.length) {
-        alert("Авторы не найдены, возможно, изменился HTML Ficbook.");
-        return;
-    }
-
-    const originalAuthor = getOriginalAuthor();
-    const originalWork = getOriginalWork();
-
-    const translators = authors.filter(a => a.role === "переводчик");
-    const mainAuthor =
-        authors.find(a => a.role === "автор") ||
-        originalAuthor ||
-        null;
-
-    const betas = authors.filter(a => a.role === "бета");
-    const gammas = authors.filter(a => a.role === "гамма");
-    const coauthors = authors.filter(a => a.role === "соавтор");
-
-    const { fandom, size, tags, description, notes, otherPublication, pairings } = getExtraData();
-    const { direction, rating, status } = getDirectionRatingStatus();
-
-
-    // ---------------------------------------------------------
-    // SERIES
-    // ---------------------------------------------------------
-    let series = null;
-
-    const seriesLink = ficDoc.querySelector(".mb-10 a[href^='/series/']");
-    if (seriesLink) {
-        series = {
-            name: seriesLink.innerText.trim(),
-            url: "https://ficbook.net" + seriesLink.getAttribute("href")
-        };
-    }
-
-
-    // ---------------------------------------------------------
-    // CHAPTERS
-    // ---------------------------------------------------------
-    let rawChapters = Array.from(ficDoc.querySelectorAll(".list-of-fanfic-parts .part-link"))
-        .filter(ch => {
-            if (!ch.href) return false;
-            if (ch.href.includes("/all-parts")) return false;
-            let clean = ch.href.split("#")[0];
-            let last = clean.split("/").pop();
-            return /^\d+$/.test(last);
-        });
-
-    if (rawChapters.length === 0) {
-        rawChapters = [{ href: location.href }];
-    }
-
-    let chapters = [];
-    let seen = new Set();
-    for (let ch of rawChapters) {
-        if (!seen.has(ch.href)) {
-            seen.add(ch.href);
-            chapters.push(ch);
-        }
-    }
-
-    const total = chapters.length;
-
-    // ---------------------------------------------------------
-    // FB2 HEADER
-    // ---------------------------------------------------------
-    let fb2Header = buildFb2Header({
-        title,
-        mainAuthor,
-        coauthors,
-        originalAuthor,
-        originalWork,
-        translators,
-        betas,
-        gammas,
-        direction,
-        rating,
-        size,
-        status,
-        tags,
-        description: cleanHtmlEntitiesForFb2(description),
-        notes: cleanHtmlEntitiesForFb2(notes),
-        otherPublication,
-        fandom,
-        pairings,
-        series
-    });
-
-    let fb2Chapters = "";
-    let tocEntries = [];
-    let chapterIndex = 1;
-
-    let globalFootnoteIndex = { value: 1 };
-    let allNotes = [];
-
-    let failedChapters = [];
-
-
-    // ---------------------------------------------------------
-    // FIRST PASS
-    // ---------------------------------------------------------
-    for (let chapter of chapters) {
-
-        if (isCancelled()) throw new Error("cancelled");
-
-        onProgress(chapterIndex, total);
-
-        await delay(200 + Math.random() * 200);
-
-        try {
-            let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
-
-            xhtml = cleanHtmlEntitiesForFb2(xhtml);
-
-            const { content, notes } = renderFb2Footnotes(xhtml, footnotes, globalFootnoteIndex);
-            allNotes.push(...notes);
-
-            tocEntries.push({
-                id: `ch${chapterIndex}`,
-                // title: `•\u2003${chTitle}`
-                title: `${chapterIndex}. ${chTitle}`
-            });
-
-            fb2Chapters += `
-<section id="ch${chapterIndex}">
-<!--    <title><p>•\u2003${chTitle}</p></title>-->
-    <title><p>${chapterIndex}. ${chTitle}</p></title>
-    ${content}
+    for (const chapter of chapters) {
+        const rendered = renderFb2Footnotes(chapter, globalFootnoteIndex);
+        allNotes.push(...rendered.notes);
+        const title = `${chapter.number}. ${chapter.title}`;
+        tocEntries.push({ id: `ch${chapter.number}`, title });
+        chapterXml += `
+<section id="ch${chapter.number}">
+    <title><p>${escapeXml(title)}</p></title>
+    ${rendered.content}
 </section>`;
-
-        } catch (err) {
-            console.warn("Не удалось загрузить главу:", chapter.href, err);
-            failedChapters.push({ chapter, index: chapterIndex });
-        }
-
-        chapterIndex++;
     }
 
-
-    // ---------------------------------------------------------
-    // SECOND PASS
-    // ---------------------------------------------------------
-    if (failedChapters.length > 0) {
-        console.warn("Повторная загрузка неудачных глав:", failedChapters.length);
-
-        for (let item of failedChapters) {
-            const { chapter, index } = item;
-
-            await delay(500 + Math.random() * 500);
-
-            try {
-                let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
-
-                xhtml = cleanHtmlEntitiesForFb2(xhtml);
-
-                const { content, notes } = renderFb2Footnotes(xhtml, footnotes, globalFootnoteIndex);
-                allNotes.push(...notes);
-
-                tocEntries[index - 1] = {
-                    id: `ch${index}`,
-                    // title: `•\u2003${chTitle}`
-                    title: `${chapterIndex}. ${chTitle}`
-                };
-
-                fb2Chapters += `
-<section id="ch${index}">
-<!--    <title><p>•\u2003${chTitle}</p></title>-->
-    <title><p>${chapterIndex}. ${chTitle}</p></title>
-    ${content}
-</section>`;
-
-                item.success = true;
-
-            } catch (err) {
-                console.warn("Повторно не удалось загрузить:", chapter.href);
-                item.success = false;
-            }
-        }
-
-        failedChapters = failedChapters.filter(ch => !ch.success);
-    }
-
-    // ---------------------------------------------------------
-    // FINAL CHECK
-    // ---------------------------------------------------------
-    if (failedChapters.length > 0) {
-        alert(
-            "Некоторые главы не удалось загрузить:\n" +
-            failedChapters.map(f => f.chapter.href).join("\n")
-        );
-    }
-
-    // ---------------------------------------------------------
-    // BUILD FB2
-    // ---------------------------------------------------------
-    let fb2Toc = buildFb2Toc(tocEntries);
-    let fb2Body = buildFb2Body(fb2Chapters);
-
-    let fb2NotesBody = "";
-
-    if (allNotes.length) {
-        fb2NotesBody = `
+    const notesBody = allNotes.length ? `
 <body name="notes">
-${allNotes
-            .map(n => `
-<section id="note_${n.id}">
-    <title>${n.number}</title>
-    <p>${n.html}</p>
-</section>
-`)
-            .join("\n")}
-</body>
-`;
+${allNotes.map(note => `
+<section id="${escapeXml(note.id)}">
+    <title><p>${note.number}</p></title>
+    <p>${note.html}</p>
+</section>`).join("\n")}
+</body>` : "";
+
+    const coverBinary = cover
+        ? `\n<binary id="${cover.fileName}" content-type="${cover.mediaType}">${cover.base64}</binary>`
+        : "";
+
+    const fullFb2 = [
+        buildFb2Header({ meta, cover, bookId }),
+        buildFb2Toc(tocEntries),
+        buildFb2Body(chapterXml),
+        notesBody,
+        coverBinary,
+        "\n</FictionBook>"
+    ].join("");
+
+
+    const translator = meta.translators?.[0]?.name;
+    const titlePart = translator ? `${meta.title}_[${translator}]` : meta.title;
+    const fileName = `${generateFileBaseName(meta.mainAuthor?.name || "UnknownAuthor", titlePart)}.fb2`;
+    downloadBlob(new Blob([fullFb2], { type: "application/x-fictionbook+xml;charset=utf-8" }), fileName);
+}
+
+;// ./src/utils/loadLibrary.js
+const pendingLoads = new Map();
+
+function requestText(url) {
+    const gmRequest = globalThis.GM_xmlhttpRequest || globalThis.GM?.xmlHttpRequest;
+    if (gmRequest) {
+        return new Promise((resolve, reject) => {
+            gmRequest({
+                method: "GET",
+                url,
+                responseType: "text",
+                timeout: 30000,
+                onload: response => {
+                    if (response.status >= 200 && response.status < 300) {
+                        resolve(response.responseText || response.response);
+                    } else {
+                        reject(new Error(`HTTP ${response.status}: ${url}`));
+                    }
+                },
+                onerror: () => reject(new Error(`Не удалось загрузить библиотеку: ${url}`)),
+                ontimeout: () => reject(new Error(`Тайм-аут загрузки библиотеки: ${url}`))
+            });
+        });
     }
 
-    const fullFb2 = fb2Header + fb2Toc + fb2Body + fb2NotesBody + "</FictionBook>";
-
-    const safeAuthorName = mainAuthor?.name || "UnknownAuthor";
-    const translatorName = translators[0]?.name || null;
-
-    let titlePart = title;
-    if (translatorName) {
-        titlePart += `_[${translatorName}]`;
-    }
-
-    const baseName = generateFileBaseName(safeAuthorName, titlePart);
-    const fileName = `${baseName}.fb2`;
-
-    // let blob = new Blob([fullFb2], { type: "text/xml" });
-
-    let blob = new Blob([fullFb2], {
-        type: "application/octet-stream"
+    return fetch(url).then(response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${url}`);
+        return response.text();
     });
+}
 
-    let link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = fileName;
-    link.click();
+function findGlobal(globalName) {
+    if (!globalName) return undefined;
+
+    const roots = [
+        globalThis,
+        typeof window !== "undefined" ? window : undefined,
+        typeof unsafeWindow !== "undefined" ? unsafeWindow : undefined
+    ];
+
+    for (const root of roots) {
+        if (root && root[globalName]) return root[globalName];
+    }
+    return undefined;
+}
+
+function meaningfulExport(value) {
+    if (!value) return undefined;
+    if (typeof value === "function") return value;
+    if (typeof value !== "object") return value;
+    if (value.default) return value.default;
+    if (Object.keys(value).length) return value;
+    return undefined;
+}
+
+/**
+ * Выполняет браузерную UMD-сборку как CommonJS-модуль.
+ * Это важно для Tampermonkey: обычный indirect eval может выполнить код в
+ * другом global scope, из-за чего window.JSZip/pdfMake не видны userscript.
+ */
+function executeUmd(source, url, globalName) {
+    const module = { exports: {} };
+    const exports = module.exports;
+    const setImmediateShim = typeof globalThis.setImmediate === "function"
+        ? globalThis.setImmediate.bind(globalThis)
+        : (callback, ...args) => setTimeout(callback, 0, ...args);
+    const clearImmediateShim = typeof globalThis.clearImmediate === "function"
+        ? globalThis.clearImmediate.bind(globalThis)
+        : handle => clearTimeout(handle);
+
+    // JSZip использует setImmediate в одной из веток UMD/CommonJS.
+    // В браузерном sandbox Tampermonkey этого API может не быть.
+    try {
+        if (typeof globalThis.setImmediate !== "function") globalThis.setImmediate = setImmediateShim;
+        if (typeof globalThis.clearImmediate !== "function") globalThis.clearImmediate = clearImmediateShim;
+    } catch (_) {
+        // Даже если запись в globalThis запрещена, параметры runner остаются доступны модулю.
+    }
+
+    const runner = new Function(
+        "module",
+        "exports",
+        "define",
+        "require",
+        "global",
+        "window",
+        "self",
+        "setImmediate",
+        "clearImmediate",
+        `${source}\n//# sourceURL=${url}`
+    );
+
+    runner.call(
+        globalThis,
+        module,
+        exports,
+        undefined,
+        undefined,
+        globalThis,
+        globalThis,
+        globalThis,
+        setImmediateShim,
+        clearImmediateShim
+    );
+
+    const exported = meaningfulExport(module.exports);
+    const existing = findGlobal(globalName);
+    const library = existing || exported;
+
+    if (globalName && library && !globalThis[globalName]) {
+        try {
+            globalThis[globalName] = library;
+        } catch (_) {
+            // Достаточно вернуть объект напрямую, если sandbox запрещает запись.
+        }
+    }
+
+    return findGlobal(globalName) || library || true;
+}
+
+async function loadOne(url, globalName) {
+    const existing = findGlobal(globalName);
+    if (existing) return existing;
+
+    if (!pendingLoads.has(url)) {
+        pendingLoads.set(url, (async () => {
+            const source = await requestText(url);
+            return executeUmd(source, url, globalName);
+        })());
+    }
+
+    try {
+        const result = await pendingLoads.get(url);
+        if (globalName && !findGlobal(globalName) && !result) {
+            throw new Error(`Библиотека загружена, но объект ${globalName} не появился.`);
+        }
+        return findGlobal(globalName) || result;
+    } catch (error) {
+        pendingLoads.delete(url);
+        throw error;
+    }
+}
+
+/**
+ * Лениво загружает внешний UMD-скрипт в userscript sandbox.
+ * Можно передать несколько CDN-адресов: следующий используется при ошибке.
+ */
+async function loadExternalScript(urlOrUrls, globalName = "") {
+    const urls = Array.isArray(urlOrUrls) ? urlOrUrls : [urlOrUrls];
+    const errors = [];
+
+    for (const url of urls) {
+        try {
+            return await loadOne(url, globalName);
+        } catch (error) {
+            errors.push(error instanceof Error ? error.message : String(error));
+        }
+    }
+
+    throw new Error(`Не удалось загрузить внешнюю библиотеку:\n${errors.join("\n")}`);
 }
 
 ;// ./src/epub/epubCss.js
@@ -1122,660 +1166,76 @@ const epubCss = `
 body {
     margin: 0;
     padding: 0 8%;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    line-height: 1.6;
+    font-family: serif;
+    line-height: 1.55;
     font-size: 1em;
 }
 h1, h2, h3 {
     font-weight: 700;
-    margin: 1.2em 0 0.6em;
-}
+    margin: 1.2em 0 0.6em; 
+    }
 h1 {
-    font-size: 1.6em;
+    font-size: 1.55em;
     text-align: center;
-}
+    }
 p {
     margin: 0.6em 0;
-}
-strong {
-    font-weight: 700;
-}
+    }
 .title-page {
-    margin-top: 20%;
-    text-align: center;
-}
+    text-align: center; 
+    }
+.title-page .cover {
+    display: block; max-width: 90%;
+    max-height: 80vh;
+    margin: 0 auto 1.5em;
+    }
 .title-page h1 {
     font-size: 1.8em;
     margin-bottom: 0.4em;
-}
+    }
 .title-page h2 {
-    font-size: 1.2em;
-    margin-top: 0;
-    color: #555;
-}
+    font-size: 1.2em; margin-top: 0;
+    }
 .meta-block {
     margin-top: 2em;
     font-size: 0.9em;
-    color: #555;
-}
+    text-align: left;
+    }
 .meta-block p {
     margin: 0.2em 0;
-}
+    }
+.footnotes {
+    margin-top: 2em;
+    border-top: 1px solid #999;
+    font-size: 0.9em;
+    }
+.footnote-ref {
+    text-decoration: none;
+    vertical-align: super;
+    font-size: 0.8em;
+    }
 `;
 
 ;// ./src/epub/epubTemplates.js
-/**
- * EPUB HTML-шаблоны
- *
- * Генерация:
- * - титульной страницы (titlepage.xhtml)
- * - страниц глав (chapter.xhtml)
- * - HTML-оглавления (toc.xhtml)
- */
 
 
 
+function peopleLine(label, people) {
+    if (!people?.length) return "";
 
-/**
- * ТИТУЛЬНАЯ СТРАНИЦА EPUB
- *
- * Содержит:
- * - название фанфика
- * - автора и соавторов
- * - метаданные (фэндом, рейтинг, теги и т.д.)
- * - описание и примечания
- */
-function buildTitlePage({
-                                   title,
-                                   mainAuthor,
-                                   coauthors,
-                                   translators,
-                                   betas,
-                                   gammas,
-                                   direction,
-                                   rating,
-                                   size,
-                                   status,
-                                   tags,
-                                   description,
-                                   notes,
-                                   otherPublication,
-                                   fandom,
-                                   pairings,
-                                   series
-                               }) {
-    return `
-<?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml"
-      xmlns:epub="http://www.idpf.org/2007/ops"
-      xml:lang="ru">
-<head>
-    <title>${escapeXml(title)}</title>
-    <link rel="stylesheet" type="text/css" href="style.css"/>
-</head>
-<body>
-    <!-- === ТИТУЛЬНАЯ СТРАНИЦА === -->
-    <div class="title-page">
-        <h1>${escapeXml(title)}</h1>
-        <h2>${escapeXml(mainAuthor.name)}</h2>
-
-        <div class="meta-block">
-            <p><strong>Ссылка на работу:</strong> ${escapeXml(location.href)}</p>
-            <p><strong>Направленность:</strong> ${escapeXml(direction)}</p>
-            <p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)} (${escapeXml(mainAuthor.url)})</p>
-
-            ${translators?.length
-        ? `<p><strong>Переводчик:</strong> ${
-            translators.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-        }</p>`
-        : ""
-    }
-
-            ${betas?.length
-        ? `<p><strong>Бета:</strong> ${
-            betas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-        }</p>`
-        : ""
-    }
-
-            ${gammas?.length
-        ? `<p><strong>Гамма:</strong> ${
-            gammas.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-        }</p>`
-        : ""
-    }
-
-            ${coauthors?.length
-        ? `<p><strong>Соавторы:</strong> ${
-            coauthors.map(a => `${escapeXml(a.name)} (${escapeXml(a.url)})`).join(", ")
-        }</p>`
-        : ""
-    }
-
-            ${series
-        ? `<p><strong>Серия:</strong> ${escapeXml(series.name)} (${escapeXml(series.url)})</p>`
-        : ""
-    }
-
-            <p><strong>Фэндом:</strong> ${escapeXml(fandom)}</p>
-
-            ${pairings?.length
-        ? `<p><strong>Пейринги и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>`
-        : ""
-    }
-
-            <p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>
-            <p><strong>Размер:</strong> ${escapeXml(size)} слов</p>
-            <p><strong>Статус:</strong> ${escapeXml(status)}</p>
-            <p><strong>Метки:</strong> ${escapeXml(tags)}</p>
-        </div>
-    </div>
-
-    <h2>Описание</h2>
-    ${textToParagraphs(description)}
-
-    ${notes ? `<h2>Примечания</h2>\n${textToParagraphs(notes)}` : ""}
-
-    ${otherPublication ? `<h2>Публикация на других ресурсах</h2>\n<p>${escapeXml(otherPublication)}</p>` : ""}
-
-</body>
-</html>
-`.trim();
-}
-
-/**
- * СТРАНИЦА ГЛАВЫ EPUB
- *
- * Каждая глава — отдельный XHTML файл внутри EPUB.
- */
-function buildChapterPage(ch) {
-    return `
-<?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml"
-      xmlns:epub="http://www.idpf.org/2007/ops"
-      xml:lang="ru">
-<head>
-    <title>${escapeXml(ch.title)}</title>
-    <link rel="stylesheet" type="text/css" href="style.css"/>
-</head>
-<body>
-    <h1>${escapeXml(ch.title)}</h1>
-    
-    <!-- основной контент главы -->
-    ${ch.content}
-</body>
-</html>
-`.trim();
-}
-
-
-// HTML-оглавление EPUB (toc.xhtml)
-function buildTocXhtml(chapters) {
-    const tocItems = chapters.map(ch => `
-        <li><a href="${escapeXml(ch.file)}">${escapeXml(ch.title)}</a></li>
-    `).join("\n");
-
-    return `
-<?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml"
-      xmlns:epub="http://www.idpf.org/2007/ops"
-      xml:lang="ru">
-<head>
-    <title>Оглавление</title>
-    <link rel="stylesheet" type="text/css" href="style.css"/>
-</head>
-<body>
-    <h1>Оглавление</h1>
-    <ol>
-        ${tocItems}
-    </ol>
-</body>
-</html>
-`.trim();
-}
-
-;// ./src/epub/epubOpf.js
-/**
- * EPUB OPF файл (package document)
- *
- * Отвечает за:
- * - метаданные книги (title, author, language)
- * - список файлов (manifest)
- * - порядок чтения (spine)
- * - идентификацию EPUB-книги
- */
-
-
-function buildOpf({ title, mainAuthor, description, chapters, translators }) {
-    const now = new Date();
-    const isoDate = now.toISOString().split("T")[0];
-
-    const manifest = [
-        `<item id="css" href="style.css" media-type="text/css"/>`,
-        `<item id="titlepage" href="titlepage.xhtml" media-type="application/xhtml+xml"/>`,
-        `<item id="toc" href="toc.xhtml" media-type="application/xhtml+xml"/>`,
-        ...chapters.map(ch =>
-            `<item id="${ch.id}" href="${ch.file}" media-type="application/xhtml+xml"/>`
-        ),
-        `<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>`
-    ].join("\n        ");
-
-    // SPINE — порядок чтения книги
-    const spine = [
-        `<itemref idref="titlepage"/>`,
-        `<itemref idref="toc"/>`,
-        ...chapters.map(ch => `<itemref idref="${ch.id}"/>`)
-    ].join("\n        ");
-
-    return `
-<?xml version="1.0" encoding="utf-8"?>
-<package version="2.0"
-    xmlns="http://www.idpf.org/2007/opf"
-    unique-identifier="BookId">
-
-        <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-        
-            <!-- === МЕТАДАННЫЕ КНИГИ === -->
-            <dc:title>${escapeXml(title)}</dc:title>
-            
-            <dc:creator>${escapeXml(
-        mainAuthor?.name ||
-        translators?.[0]?.name ||
-        "UnknownAuthor"
-    )}</dc:creator>
-    
-            <dc:language>ru</dc:language>
-            
-            <dc:identifier id="BookId">urn:uuid:${Date.now()}</dc:identifier>
-            
-            <dc:date>${isoDate}</dc:date>
-            
-            <dc:subject>fiction</dc:subject>
-            
-            <dc:description>${escapeXml(description.slice(0, 500))}</dc:description>
-            
-            <!-- источник оригинальной страницы -->
-            <meta name="source" content="${escapeXml(location.href)}"/>
-        </metadata>
-
-        <manifest>
-            ${manifest}
-        </manifest>
-
-        <spine toc="ncx">
-            ${spine}
-        </spine>
-
-</package>
-`.trim();
-}
-
-;// ./src/epub/epubNcx.js
-/**
- * EPUB 2.0 навигационный файл (NCX)
- *
- * Отвечает за:
- * - структуру оглавления EPUB
- * - навигацию между главами
- * - совместимость со старыми ридерами
- */
-
-
-
-function buildNcx(title, chapters) {
-
-    // Генерация навигационных пунктов для каждой главы
-    const navPoints = chapters.map((ch, i) => `
-        <navPoint id="navPoint-${i + 2}" playOrder="${i + 2}">
-            <navLabel><text>${escapeXml(ch.title)}</text></navLabel>
-            <content src="${ch.file}"/>
-        </navPoint>
-    `).join("\n");
-
-    return `
-<?xml version="1.0" encoding="UTF-8"?>
-<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"
-    version="2005-1">
-    <head>
-        <!-- уникальный идентификатор книги -->
-        <meta name="dtb:uid" content="urn:uuid:${Date.now()}"/>
-        <meta name="dtb:depth" content="1"/>
-        <meta name="dtb:totalPageCount" content="0"/>
-        <meta name="dtb:maxPageNumber" content="0"/>
-    </head>
-    <docTitle>
-        <text>${escapeXml(title)}</text>
-    </docTitle>
-    <navMap>
-        <!-- пункт оглавления -->
-        <navPoint id="navPoint-1" playOrder="1">
-            <navLabel><text>Оглавление</text></navLabel>
-            <content src="toc.xhtml"/>
-        </navPoint>
-        <!-- главы -->
-        ${navPoints}
-    </navMap>
-</ncx>
-`.trim();
-}
-
-;// ./src/epub/epubBuilder.js
-/**
- * Основной модуль сборки EPUB-файла.
- * Отвечает за полный процесс экспорта фанфика в EPUB:
- * - загрузка страницы фанфика и списка глав
- * - сбор метаданных (авторы, фэндом, рейтинг, серия и т.д.)
- * - загрузка и обработка каждой главы
- * - обработка сносок (преобразование footnote-ref в EPUB-структуру)
- * - повторная загрузка неудачных глав
- * - формирование структуры EPUB через JSZip
- * - создание всех файлов внутри архива (xhtml, opf, ncx, css, toc)
- * - генерация и скачивание готового .epub файла
- */
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// Очистка HTML‑сущностей
-function cleanHtmlEntities(text) {
-    if (!text) return text;
-
-    return text
-        .replace(/&nbsp;/g, " ")
-        .replace(/&mdash;/g, "—")
-        .replace(/&ndash;/g, "–")
-        .replace(/&hellip;/g, "…")
-        .replace(/&laquo;/g, "«")
-        .replace(/&raquo;/g, "»")
-        .replace(/&copy;/g, "©")
-        .replace(/&reg;/g, "®")
-        .replace(/&bull;/g, "•")
-        .replace(/&middot;/g, "·")
-        .replace(/&([a-zA-Z0-9]+);/g, "$1");
-}
-
-
-// === Обработка сносок для EPUB ===
-// - заменяет footnote-ref на ссылки
-// - добавляет <aside> блоки с текстом сносок
-function renderEpubFootnotes(xhtml, footnotes) {
-    if (!footnotes || !footnotes.length) return xhtml;
-
-    let content = xhtml;
-
-    // ищем ссылку по id сноски
-    footnotes.forEach(n => {
-        const re = new RegExp(
-            `<footnote-ref[^>]*id=["']${n.id}["'][^>]*>([\\s\\S]*?)<\\/footnote-ref>|<footnote-ref[^>]*id=["']${n.id}["'][^>]*\\/?>`,
-            "g"
-        );
-
-        // заменяем на EPUB ссылку на footnote
-        content = content.replace(
-            re,
-            `<a href="#${n.id}_text" epub:type="noteref" class="footnote-ref">[${n.number}]</a>`
-        );
-    });
-
-    // формируем блок всех сносок
-    const notesHtml = footnotes
-        .map(
-            n => `
-        <aside id="${n.id}_text" epub:type="footnote" class="footnote">
-            <p><sup>${n.number}</sup> ${cleanHtmlEntities(n.html)}</p>
-        </aside>`
+    const value = people
+        .map(person =>
+            person.url
+                ? `${escapeXml(person.name)} (${escapeXml(person.url)})`
+                : escapeXml(person.name)
         )
-        .join("");
+        .join(", ");
 
-    content += `
-<div class="footnotes">
-    ${notesHtml}
-</div>
-`;
-
-    return content;
+    return `<p><strong>${escapeXml(label)}:</strong> ${value}</p>`;
 }
 
-// === Основная функция сборки EPUB ===
-async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
-
-    // ---------------------------------------------------------
-    // Загружаем страницу содержания в iframe, если мы на странице главы
-    // ---------------------------------------------------------
-    async function loadFicMainPageIfNeeded() {
-        const url = new URL(location.href);
-        const parts = url.pathname.split("/").filter(Boolean);
-
-        if (parts.length === 2 && parts[0] === "readfic") {
-            return document;
-        }
-
-        // если открыта глава — грузим главную страницу фанфика
-        if (parts.length === 3 && parts[0] === "readfic") {
-            const ficId = parts[1];
-            const ficUrl = `https://ficbook.net/readfic/${ficId}`;
-
-            return new Promise((resolve, reject) => {
-                const iframe = document.createElement("iframe");
-                iframe.style.display = "none";
-                iframe.src = ficUrl;
-
-                iframe.onload = () => {
-                    try {
-                        resolve(iframe.contentDocument);
-                    } catch (e) {
-                        reject(e);
-                    }
-                };
-
-                document.body.appendChild(iframe);
-            });
-        }
-
-        return document;
-    }
-
-    const ficDoc = await loadFicMainPageIfNeeded();
-
-
-    // ---------------------------------------------------------
-    // Подгрузка JSZip (если нет)
-    // ---------------------------------------------------------
-    if (!window.JSZip) {
-        await new Promise((resolve, reject) => {
-            const s = document.createElement("script");
-            s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
-            s.onload = resolve;
-            s.onerror = () => reject(new Error("Не удалось загрузить JSZip"));
-            document.head.appendChild(s);
-        });
-    }
-
-    // ---------------------------------------------------------
-    // METADATA
-    // ---------------------------------------------------------
-    const title = getTitle();
-    const authors = getAuthors();
-    if (!authors.length) {
-        alert("Авторы не найдены, возможно, изменился HTML Ficbook.");
-        return;
-    }
-
-    const originalAuthor = getOriginalAuthor();
-    const translators = authors.filter(a => a.role === "переводчик");
-
-    const mainAuthor =
-        authors.find(a => a.role === "автор") ||
-        originalAuthor ||
-        null;
-
-    const betas = authors.filter(a => a.role === "бета");
-    const gammas = authors.filter(a => a.role === "гамма");
-    const coauthors = authors.filter(a => a.role === "соавтор");
-
-    const { fandom, size, tags, description, notes, otherPublication, pairings } = getExtraData();
-    const { direction, rating, status } = getDirectionRatingStatus();
-
-
-    // ---------------------------------------------------------
-    // SERIES
-    // ---------------------------------------------------------
-    let series = null;
-
-    const seriesLink = ficDoc.querySelector(".mb-10 a[href^='/series/']");
-    if (seriesLink) {
-        series = {
-            name: seriesLink.innerText.trim(),
-            url: "https://ficbook.net" + seriesLink.getAttribute("href")
-        };
-    }
-
-
-    // ---------------------------------------------------------
-    // CHAPTERS
-    // ---------------------------------------------------------
-    let rawChapters = Array.from(ficDoc.querySelectorAll(".list-of-fanfic-parts .part-link"))
-        .filter(ch => {
-            if (!ch.href) return false;
-            if (ch.href.includes("/all-parts")) return false;
-            let clean = ch.href.split("#")[0];
-            let last = clean.split("/").pop();
-            return /^\d+$/.test(last);
-        });
-
-    // если глав нет — считаем одну текущую страницу
-    if (rawChapters.length === 0) {
-        rawChapters = [{ href: location.href }];
-    }
-
-    // убираем дубликаты
-    let chaptersList = [];
-    let seen = new Set();
-    for (let ch of rawChapters) {
-        if (!seen.has(ch.href)) {
-            seen.add(ch.href);
-            chaptersList.push(ch);
-        }
-    }
-
-    const total = chaptersList.length;
-    const chapters = [];
-    let index = 1;
-
-    let failedChapters = [];
-
-
-    // ---------------------------------------------------------
-    // FIRST PASS
-    // ---------------------------------------------------------
-    for (let chapter of chaptersList) {
-
-        if (isCancelled()) throw new Error("cancelled");
-
-        onProgress(index, total);
-
-        await new Promise(r => setTimeout(r, 200 + Math.random() * 200));
-
-        try {
-            let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
-
-            xhtml = cleanHtmlEntities(xhtml);
-
-            let content = renderEpubFootnotes(xhtml, footnotes);
-
-            chapters.push({
-                id: `chapter${index}`,
-                file: `chapter${index}.xhtml`,
-                title: chTitle,
-                content
-            });
-
-        } catch (err) {
-            console.warn("Не удалось загрузить главу:", chapter.href, err);
-            failedChapters.push({ chapter, index });
-        }
-
-        index++;
-    }
-
-
-    // ---------------------------------------------------------
-    // SECOND PASS
-    // ---------------------------------------------------------
-    if (failedChapters.length > 0) {
-        console.warn("Повторная загрузка неудачных глав:", failedChapters.length);
-
-        for (let item of failedChapters) {
-            const { chapter, index } = item;
-
-            await new Promise(r => setTimeout(r, 500 + Math.random() * 500));
-
-            try {
-                let { title: chTitle, xhtml, footnotes } = await getChapter(chapter.href);
-
-                xhtml = cleanHtmlEntities(xhtml);
-
-                let content = renderEpubFootnotes(xhtml, footnotes);
-
-                chapters[index - 1] = {
-                    id: `chapter${index}`,
-                    file: `chapter${index}.xhtml`,
-                    title: chTitle,
-                    content
-                };
-
-                item.success = true;
-
-            } catch (err) {
-                console.warn("Повторно не удалось загрузить:", chapter.href);
-                item.success = false;
-            }
-        }
-
-        failedChapters = failedChapters.filter(ch => !ch.success);
-    }
-
-
-    if (failedChapters.length > 0) {
-        alert(
-            "Некоторые главы не удалось загрузить:\n" +
-            failedChapters.map(f => f.chapter.href).join("\n")
-        );
-    }
-
-
-    // ---------------------------------------------------------
-    // СБОРКА EPUB АРХИВА
-    // ---------------------------------------------------------
-    const zip = new JSZip();
-
-    zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
-
-    // структура контейнера
-    zip.file("META-INF/container.xml", `<?xml version="1.0" encoding="UTF-8"?>
-<container version="1.0"
-    xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-    <rootfiles>
-        <rootfile full-path="OEBPS/content.opf"
-            media-type="application/oebps-package+xml"/>
-    </rootfiles>
-</container>`);
-
-    // стили
-    zip.file("OEBPS/style.css", epubCss.trim());
-
-    // титульная страница
-    zip.file("OEBPS/titlepage.xhtml", buildTitlePage({
+function buildTitlePage({ meta, cover }) {
+    const {
         title,
         mainAuthor,
         coauthors,
@@ -1787,188 +1247,852 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
         size,
         status,
         tags,
-        description: cleanHtmlEntities(description),
-        notes: cleanHtmlEntities(notes),
+        description,
+        notes,
         otherPublication,
         fandom,
         pairings,
-        series
-    }));
+        series,
+        sourceUrl
+    } = meta;
 
-    // главы
-    chapters.forEach(ch => {
-        zip.file(`OEBPS/${ch.file}`, buildChapterPage(ch));
-    });
+    const xhtml = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ru">
+<head>
+    <title>${escapeXml(title)}</title>
+    <link rel="stylesheet" type="text/css" href="style.css"/>
+</head>
+<body>
+    <div class="title-page">
+        ${cover ? `<img class="cover" src="images/${cover.fileName}" alt="Обложка"/>` : ""}
+        <h1>${escapeXml(title)}</h1>
+        <h2>${escapeXml(mainAuthor?.name || "")}</h2>
+        <div class="meta-block">
+            <p><strong>Ссылка на работу:</strong> ${escapeXml(sourceUrl)}</p>
+            ${direction ? `<p><strong>Направленность:</strong> ${escapeXml(direction)}</p>` : ""}
+            ${peopleLine("Переводчик", translators)}
+            ${peopleLine("Соавторы", coauthors)}
+            ${peopleLine("Бета", betas)}
+            ${peopleLine("Гамма", gammas)}
+            ${series ? `<p><strong>Серия:</strong> ${escapeXml(series.name)}${series.url ? ` (${escapeXml(series.url)})` : ""}</p>` : ""}
+            ${fandom ? `<p><strong>Фэндом:</strong> ${escapeXml(fandom)}</p>` : ""}
+            ${pairings?.length ? `<p><strong>Пейринги и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>` : ""}
+            ${rating ? `<p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>` : ""}
+            ${size ? `<p><strong>Размер:</strong> ${escapeXml(size)} слов</p>` : ""}
+            ${status ? `<p><strong>Статус:</strong> ${escapeXml(status)}</p>` : ""}
+            ${tags ? `<p><strong>Метки:</strong> ${escapeXml(tags)}</p>` : ""}
+        </div>
+    </div>
+    ${description ? `<h2>Описание</h2>${textToParagraphs(description)}` : ""}
+    ${notes ? `<h2>Примечания</h2>${textToParagraphs(notes)}` : ""}
+    ${otherPublication ? `<h2>Публикация на других ресурсах</h2><p>${escapeXml(otherPublication)}</p>` : ""}
+</body>
+</html>`;
 
-    // оглавление
-    zip.file("OEBPS/toc.xhtml", buildTocXhtml(chapters));
+    return xhtml.replace(/^[ \t]*\r?\n/gm, "");
+}
 
-    // OPF манифест
-    zip.file("OEBPS/content.opf", buildOpf({
-        title,
-        mainAuthor,
-        description: cleanHtmlEntities(description),
-        chapters,
-        translators,
-        series
-    }));
+function buildChapterPage(chapter) {
+    return `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ru">
+<head>
+    <title>${escapeXml(chapter.title)}</title>
+    <link rel="stylesheet" type="text/css" href="style.css"/>
+</head>
+<body>
+    <h1>${escapeXml(`${chapter.number}. ${chapter.title}`)}</h1>
+    ${chapter.content}
+</body>
+</html>`;
+}
 
-    // NCX навигация
-    zip.file("OEBPS/toc.ncx", buildNcx(title, chapters));
+function buildTocXhtml(chapters) {
+    const items = chapters
+        .map(chapter =>
+            `<li><a href="${escapeXml(chapter.file)}">${escapeXml(`${chapter.number}. ${chapter.title}`)}</a></li>`
+        )
+        .join("\n");
 
-    // === СКАЧИВАНИЕ ===
-    const safeAuthorName = mainAuthor?.name || "UnknownAuthor";
-    const translatorName = translators[0]?.name || null;
+    return `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ru">
+<head>
+    <title>Оглавление</title>
+    <link rel="stylesheet" type="text/css" href="style.css"/>
+</head>
+<body>
+    <h1>Оглавление</h1>
+    <ol>${items}</ol>
+</body>
+</html>`;
+}
+;// ./src/epub/epubOpf.js
 
-    let titlePart = title;
-    if (translatorName) {
-        titlePart += `_[${translatorName}]`;
+
+function buildOpf({ meta, chapters, cover, bookId }) {
+    const manifest = [
+        `<item id="css" href="style.css" media-type="text/css"/>`,
+        `<item id="titlepage" href="titlepage.xhtml" media-type="application/xhtml+xml"/>`,
+        `<item id="toc" href="toc.xhtml" media-type="application/xhtml+xml"/>`,
+        ...chapters.map(chapter => `<item id="${chapter.id}" href="${chapter.file}" media-type="application/xhtml+xml"/>`),
+        ...(cover ? [`<item id="cover-image" href="images/${cover.fileName}" media-type="${cover.mediaType}"/>`] : []),
+        `<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>`
+    ].join("\n        ");
+
+    const spine = [
+        `<itemref idref="titlepage"/>`,
+        `<itemref idref="toc"/>`,
+        ...chapters.map(chapter => `<itemref idref="${chapter.id}"/>`)
+    ].join("\n        ");
+
+    return `<?xml version="1.0" encoding="utf-8"?>
+<package version="2.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId">
+    <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+        <dc:title>${escapeXml(meta.title)}</dc:title>
+        <dc:creator>${escapeXml(meta.mainAuthor?.name || "UnknownAuthor")}</dc:creator>
+        <dc:language>ru</dc:language>
+        <dc:identifier id="BookId">urn:uuid:${escapeXml(bookId)}</dc:identifier>
+        <dc:date>${new Date().toISOString().split("T")[0]}</dc:date>
+        <dc:subject>${escapeXml(meta.tags || "fanfiction")}</dc:subject>
+        <dc:description>${escapeXml((meta.description || "").slice(0, 1000))}</dc:description>
+        <dc:source>${escapeXml(meta.sourceUrl)}</dc:source>
+        ${cover ? `<meta name="cover" content="cover-image"/>` : ""}
+    </metadata>
+    <manifest>
+        ${manifest}
+    </manifest>
+    <spine toc="ncx">
+        ${spine}
+    </spine>
+    <guide>
+        <reference type="cover" title="Обложка" href="titlepage.xhtml"/>
+        <reference type="toc" title="Оглавление" href="toc.xhtml"/>
+    </guide>
+</package>`;
+}
+
+;// ./src/epub/epubNcx.js
+
+
+function buildNcx(title, chapters, bookId) {
+    const navPoints = chapters.map((chapter, index) => `
+        <navPoint id="navPoint-${index + 2}" playOrder="${index + 2}">
+            <navLabel><text>${escapeXml(`${chapter.number}. ${chapter.title}`)}</text></navLabel>
+            <content src="${escapeXml(chapter.file)}"/>
+        </navPoint>`).join("\n");
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+    <head>
+        <meta name="dtb:uid" content="urn:uuid:${escapeXml(bookId)}"/>
+        <meta name="dtb:depth" content="1"/>
+        <meta name="dtb:totalPageCount" content="0"/>
+        <meta name="dtb:maxPageNumber" content="0"/>
+    </head>
+    <docTitle><text>${escapeXml(title)}</text></docTitle>
+    <navMap>
+        <navPoint id="navPoint-1" playOrder="1">
+            <navLabel><text>Оглавление</text></navLabel>
+            <content src="toc.xhtml"/>
+        </navPoint>
+        ${navPoints}
+    </navMap>
+</ncx>`;
+}
+
+;// ./src/epub/epubBuilder.js
+
+
+
+
+
+
+
+
+
+
+
+function epubBuilder_escapeRegExp(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function renderEpubFootnotes(chapter) {
+    let content = chapter.xhtml;
+    const notes = [];
+
+    for (const note of chapter.footnotes || []) {
+        const id = `fn_${chapter.number}_${note.id}`;
+        const pattern = new RegExp(
+            `<footnote-ref[^>]*id=["']${epubBuilder_escapeRegExp(note.id)}["'][^>]*>(?:<\\/footnote-ref>)?`,
+            "g"
+        );
+        content = content.replace(
+            pattern,
+            `<a href="#${escapeXml(id)}" epub:type="noteref" class="footnote-ref">[${note.number}]</a>`
+        );
+        notes.push({ id, number: note.number, html: note.html });
     }
 
-    const baseName = generateFileBaseName(safeAuthorName, titlePart);
-    const fileName = `${baseName}.epub`;
+    content = content.replace(/<\/?footnote-ref[^>]*>/g, "");
+    if (!notes.length) return content;
+
+    return `${content}
+<div class="footnotes">
+${notes.map(note => `<aside id="${escapeXml(note.id)}" epub:type="footnote"><p><sup>${note.number}</sup> ${note.html}</p></aside>`).join("\n")}
+</div>`;
+}
+
+async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
+    const JSZip = await loadExternalScript(
+        [
+            "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
+            "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"
+        ],
+        "JSZip"
+    );
+
+    const book = await collectBook(onProgress, isCancelled);
+    const { meta, cover } = book;
+    const chapters = book.chapters.map(chapter => ({
+        ...chapter,
+        id: `chapter${chapter.number}`,
+        file: `chapter${chapter.number}.xhtml`,
+        content: renderEpubFootnotes(chapter)
+    }));
+    const bookId = createBookId();
+    const zip = new JSZip();
+
+    zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
+    zip.file("META-INF/container.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+    <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`);
+    zip.file("OEBPS/style.css", epubCss.trim());
+    zip.file("OEBPS/titlepage.xhtml", buildTitlePage({ meta, cover }));
+    chapters.forEach(chapter => zip.file(`OEBPS/${chapter.file}`, buildChapterPage(chapter)));
+    zip.file("OEBPS/toc.xhtml", buildTocXhtml(chapters));
+    zip.file("OEBPS/content.opf", buildOpf({ meta, chapters, cover, bookId }));
+    zip.file("OEBPS/toc.ncx", buildNcx(meta.title, chapters, bookId));
+    if (cover) zip.file(`OEBPS/images/${cover.fileName}`, cover.bytes, { binary: true });
 
     const blob = await zip.generateAsync({
         type: "blob",
-        mimeType: "application/epub+zip"
+        mimeType: "application/epub+zip",
+        compression: "DEFLATE",
+        compressionOptions: { level: 6 }
     });
 
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = fileName;
-    link.click();
+
+    const translator = meta.translators?.[0]?.name;
+    const titlePart = translator ? `${meta.title}_[${translator}]` : meta.title;
+    const fileName = `${generateFileBaseName(meta.mainAuthor?.name || "UnknownAuthor", titlePart)}.epub`;
+    downloadBlob(blob, fileName);
+}
+
+;// ./src/txt/txtBuilder.js
+
+
+
+
+function addLine(lines, label, value) {
+    if (!value || (Array.isArray(value) && !value.length)) return;
+    lines.push(`${label}: ${Array.isArray(value) ? value.join(", ") : value}`);
+}
+
+function buildHeader(meta) {
+    const lines = [meta.title, meta.mainAuthor?.name || "Неизвестный автор", ""];
+    addLine(lines, "Ссылка", meta.sourceUrl);
+    addLine(lines, "Направленность", meta.direction);
+    addLine(lines, "Рейтинг", meta.rating);
+    addLine(lines, "Статус", meta.status);
+    addLine(lines, "Размер", meta.size ? `${meta.size} слов` : "");
+    addLine(lines, "Фэндом", meta.fandom);
+    addLine(lines, "Пейринги и персонажи", meta.pairings);
+    addLine(lines, "Метки", meta.tags);
+    addLine(lines, "Серия", meta.series?.name);
+    addLine(lines, "Соавторы", meta.coauthors?.map(a => a.name));
+    addLine(lines, "Переводчики", meta.translators?.map(a => a.name));
+    addLine(lines, "Бета", meta.betas?.map(a => a.name));
+    addLine(lines, "Гамма", meta.gammas?.map(a => a.name));
+    addLine(lines, "Автор оригинала", meta.originalAuthor?.name);
+    addLine(lines, "Оригинал", meta.originalWork?.url);
+
+    if (meta.description) lines.push("", "Описание", meta.description);
+    if (meta.notes) lines.push("", "Примечания автора", meta.notes);
+    if (meta.otherPublication) lines.push("", "Публикация на других ресурсах", meta.otherPublication);
+
+    return lines.join("\n");
+}
+
+async function createTXT(onProgress = () => {}, isCancelled = () => false) {
+    const { meta, chapters } = await collectBook(onProgress, isCancelled);
+    const parts = [buildHeader(meta), "", "=".repeat(72)];
+
+    for (const chapter of chapters) {
+        parts.push("", `${chapter.number}. ${chapter.title}`, "-".repeat(72), "", chapter.plain);
+        if (chapter.footnotes?.length) {
+            parts.push("", "Сноски:");
+            chapter.footnotes.forEach(note => parts.push(`[${note.number}] ${note.text}`));
+        }
+    }
+
+
+    const translator = meta.translators?.[0]?.name;
+    const titlePart = translator ? `${meta.title}_[${translator}]` : meta.title;
+    const fileName = `${generateFileBaseName(meta.mainAuthor?.name || "UnknownAuthor", titlePart)}.txt`;
+    downloadBlob(new Blob(["\ufeff", parts.join("\n")], { type: "text/plain;charset=utf-8" }), fileName);
+}
+
+;// ./src/pdf/pdfBuilder.js
+
+
+
+
+
+function linkFragment(url, label = url) {
+    if (!url) return { text: label || "" };
+    return {
+        text: label || url,
+        link: url,
+        decoration: "underline",
+        color: "#0645ad"
+    };
+}
+
+function linkedValue(label, url) {
+    if (!label && !url) return [];
+    if (!url) return [{ text: label || "" }];
+    return [
+        { text: label || url },
+        { text: " (" },
+        linkFragment(url),
+        { text: ")" }
+    ];
+}
+
+function peopleValue(people) {
+    const fragments = [];
+    (people || []).forEach((person, index) => {
+        if (index) fragments.push({ text: ", " });
+        fragments.push(...linkedValue(person.name, person.url));
+    });
+    return fragments;
+}
+
+function plainValue(value) {
+    if (Array.isArray(value)) return [{ text: value.join(", ") }];
+    return [{ text: String(value ?? "") }];
+}
+
+function metaRows(meta) {
+    const rows = [];
+    const add = (label, fragments) => {
+        if (!fragments?.length || fragments.every(fragment => !String(fragment.text || "").trim())) return;
+        rows.push({
+            text: [{ text: `${label}: `, bold: true }, ...fragments],
+            margin: [0, 1, 0, 1]
+        });
+    };
+
+    add("Ссылка", meta.sourceUrl ? [linkFragment(meta.sourceUrl)] : []);
+    add("Направленность", meta.direction ? plainValue(meta.direction) : []);
+    add("Рейтинг", meta.rating ? plainValue(meta.rating) : []);
+    add("Статус", meta.status ? plainValue(meta.status) : []);
+    add("Размер", meta.size ? plainValue(`${meta.size} слов`) : []);
+    add("Фэндом", meta.fandom ? plainValue(meta.fandom) : []);
+    add("Пейринги и персонажи", meta.pairings?.length ? plainValue(meta.pairings) : []);
+    add("Метки", meta.tags ? plainValue(meta.tags) : []);
+    add("Серия", meta.series ? linkedValue(meta.series.name, meta.series.url) : []);
+    add("Соавторы", peopleValue(meta.coauthors));
+    add("Переводчики", peopleValue(meta.translators));
+    add("Бета", peopleValue(meta.betas));
+    add("Гамма", peopleValue(meta.gammas));
+    add("Автор оригинала", meta.originalAuthor ? linkedValue(meta.originalAuthor.name, meta.originalAuthor.url) : []);
+    add("Оригинал", meta.originalWork?.url ? [linkFragment(meta.originalWork.url)] : []);
+    return rows;
+}
+
+function paragraphNodes(text) {
+    return String(text || "")
+        .split(/\n{2,}/)
+        .map(part => part.trim())
+        .filter(Boolean)
+        .map(part => ({ text: part, style: "body", margin: [0, 0, 0, 7] }));
+}
+
+function getPdfBlob(pdfMake, definition) {
+    return new Promise((resolve, reject) => {
+        try {
+            pdfMake.createPdf(definition).getBlob(resolve);
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+
+function buildPdfDefinition({ meta, cover, chapters }) {
+    const content = [];
+
+    if (cover) {
+        content.push({
+            image: cover.dataUrl,
+            fit: [360, 500],
+            alignment: "center",
+            margin: [0, 0, 0, 18]
+        });
+    }
+    content.push({ text: meta.title, style: "title" });
+    content.push({
+        text: linkedValue(meta.mainAuthor?.name || "Неизвестный автор", meta.mainAuthor?.url),
+        style: "author"
+    });
+    content.push(...metaRows(meta));
+
+    if (meta.description) {
+        content.push({ text: "Описание", style: "section" }, ...paragraphNodes(meta.description));
+    }
+    if (meta.notes) {
+        content.push({ text: "Примечания автора", style: "section" }, ...paragraphNodes(meta.notes));
+    }
+    if (meta.otherPublication) {
+        content.push({ text: "Публикация на других ресурсах", style: "section" }, ...paragraphNodes(meta.otherPublication));
+    }
+
+    if (chapters.length) {
+        content.push({
+            toc: {
+                id: "chaptersToc",
+                title: { text: "Оглавление", style: "tocTitle" },
+                textStyle: "tocEntry",
+                numberStyle: "tocPageNumber"
+            },
+            pageBreak: "before"
+        });
+    }
+
+    chapters.forEach((chapter, index) => {
+        const destinationId = `chapter-${index + 1}`;
+        content.push({
+            text: `${chapter.number}. ${chapter.title}`,
+            style: "chapter",
+            id: destinationId,
+            tocItem: "chaptersToc",
+            pageBreak: "before"
+        });
+        content.push(...paragraphNodes(chapter.plain));
+        if (chapter.footnotes?.length) {
+            content.push({ text: "Сноски", style: "footnoteHeading" });
+            chapter.footnotes.forEach(note => content.push({ text: `[${note.number}] ${note.text}`, style: "footnote" }));
+        }
+    });
+
+
+    return {
+        info: {
+            title: meta.title,
+            author: meta.mainAuthor?.name || "UnknownAuthor",
+            subject: meta.fandom || "fanfiction",
+            keywords: meta.tags || ""
+        },
+        pageSize: "A4",
+        pageMargins: [54, 54, 54, 58],
+        defaultStyle: { font: "Roboto", fontSize: 11, lineHeight: 1.25 },
+        styles: {
+            title: { fontSize: 22, bold: true, alignment: "center", margin: [0, 0, 0, 8] },
+            author: { fontSize: 14, alignment: "center", margin: [0, 0, 0, 18] },
+            section: { fontSize: 15, bold: true, margin: [0, 16, 0, 8] },
+            tocTitle: { fontSize: 20, bold: true, alignment: "center", margin: [0, 0, 0, 18] },
+            tocEntry: { fontSize: 11, margin: [0, 3, 0, 3] },
+            tocPageNumber: { fontSize: 10, bold: true },
+            chapter: { fontSize: 17, bold: true, alignment: "center", margin: [0, 0, 0, 18] },
+            body: { fontSize: 11, alignment: "justify" },
+            footnoteHeading: { fontSize: 11, bold: true, margin: [0, 12, 0, 5] },
+            footnote: { fontSize: 9, margin: [0, 0, 0, 4] }
+        },
+        footer: (currentPage, pageCount) => ({
+            text: `${currentPage} / ${pageCount}`,
+            alignment: "center",
+            fontSize: 8,
+            margin: [0, 15, 0, 0]
+        }),
+        content
+    };
+}
+
+async function createPDF(onProgress = () => {}, isCancelled = () => false) {
+    const pdfMake = await loadExternalScript(
+        [
+            "https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/pdfmake.min.js",
+            "https://unpkg.com/pdfmake@0.2.20/build/pdfmake.min.js"
+        ],
+        "pdfMake"
+    );
+    const pdfFonts = await loadExternalScript([
+        "https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/vfs_fonts.js",
+        "https://unpkg.com/pdfmake@0.2.20/build/vfs_fonts.js"
+    ]);
+
+    if (pdfFonts && pdfFonts !== true && typeof pdfMake.addVirtualFileSystem === "function") {
+        pdfMake.addVirtualFileSystem(pdfFonts.default || pdfFonts);
+    }
+
+    const book = await collectBook(onProgress, isCancelled);
+    const { meta } = book;
+    const definition = buildPdfDefinition(book);
+
+    const blob = await getPdfBlob(pdfMake, definition);
+
+    const translator = meta.translators?.[0]?.name;
+    const titlePart = translator ? `${meta.title}_[${translator}]` : meta.title;
+    const fileName = `${generateFileBaseName(meta.mainAuthor?.name || "UnknownAuthor", titlePart)}.pdf`;
+    downloadBlob(blob, fileName);
 }
 
 ;// ./src/ui/buttons.js
 /**
- * UI-кнопки для экспорта фанфика:
- * - FB2
- * - EPUB
- * - остановка всех активных загрузок
- *
- * Также управляет состоянием:
- * - параллельные загрузки
- * - отмена процессов
- * - обновление UI во время скачивания
+ * Встраивает компактную кнопку экспорта в штатную панель действий Ficbook.
+ * Список форматов открывается рядом с кнопкой и не зависит от плавающих кнопок сайта.
  */
+function createButtons(exporters) {
+    const cleanupKey = "__ficbookExporterUiCleanup";
+    if (typeof window[cleanupKey] === "function") window[cleanupKey]();
 
-function createButtons(createFB2, createEPUB) {
+    // Удаляем интерфейс предыдущей версии, если скрипт был обновлён без перезагрузки страницы.
+    document.querySelectorAll("#ficbook-export-buttons").forEach(element => element.remove());
+    document.querySelector("#ficbook-export-ui-style")?.remove();
 
-    // === ГЛОБАЛЬНЫЙ СЧЁТЧИК АКТИВНЫХ ЗАГРУЗОК ===
-    // для отображения кнопки "Остановить"
-    let activeDownloads = 0;
-
-    function updateStopButton() {
-        stopBtn.style.display = activeDownloads > 0 ? "block" : "none";
-    }
-
-    // === КОНТЕЙНЕР UI ===
-    const container = document.createElement("div");
-    container.id = "ficbook-export-buttons";
-    container.style.position = "fixed";
-    container.style.bottom = "20px";
-    container.style.right = "20px";
-    container.style.zIndex = "10000";
-    container.style.display = "flex";
-    container.style.flexDirection = "column";
-    container.style.gap = "8px";
+    const actionsContainer = document.querySelector(
+        "section.chapter-info .hat-actions-container, .hat-actions-container"
+    );
+    if (!actionsContainer) return false;
 
     /**
-     * Вспомогательная функция создания кнопок с единым стилем
+     * Ищет основную строку действий Ficbook — ту, где находятся лайки,
+     * отметки, комментарии и награды.
      */
-    function createButton(label, bgColor) {
-        const btn = document.createElement("button");
-        btn.textContent = label;
-        btn.style.padding = "8px 12px";
-        btn.style.borderRadius = "999px";
-        btn.style.border = "none";
-        btn.style.cursor = "pointer";
-        btn.style.background = bgColor;
-        btn.style.color = "#fff";
-        btn.style.fontSize = "13px";
-        btn.style.fontWeight = "600";
-        btn.style.opacity = "0.9";
-        btn.style.transition = "opacity 0.15s ease, transform 0.1s ease";
-        return btn;
+    function findPlacement() {
+        const currentContainer = document.querySelector(
+            "section.chapter-info .hat-actions-container, .hat-actions-container"
+        );
+        if (!currentContainer) return null;
+
+        const directRows = Array.from(currentContainer.children).filter(element =>
+            element.matches?.(".d-flex.flex-wrap")
+        );
+        const rows = directRows.length
+            ? directRows
+            : Array.from(currentContainer.querySelectorAll(".d-flex.flex-wrap"));
+
+        const primaryActionsRow = rows.find(row =>
+            row.querySelector(
+                ".ds-btn-primary, .js-marks-plus, .js-reward-count, " +
+                "a[href*='/comments'], .ic_thumbs-up, .ic-star-empty, .ic_star-empty"
+            ) &&
+            !row.querySelector("a[href*='/collections/'], .button-container")
+        );
+
+        const fallbackRow = primaryActionsRow ||
+            directRows[0] ||
+            currentContainer.querySelector(".d-flex.flex-wrap") ||
+            currentContainer.querySelector(".d-flex") ||
+            currentContainer;
+
+        return { row: fallbackRow };
     }
 
-    const fb2Btn = createButton("Скачать FB2", "#3b82f6");
-    const epubBtn = createButton("Скачать EPUB", "#16a34a");
-    const stopBtn = createButton("Остановить загрузку", "#dc2626");
-    stopBtn.style.display = "none";
+    const style = document.createElement("style");
+    style.id = "ficbook-export-ui-style";
+    style.textContent = `
+#ficbook-export-buttons {
+    position: relative;
+    display: inline-flex;
+    flex: 0 0 auto;
+    z-index: 60;
+    font-family: inherit;
+}
+#ficbook-export-buttons *,
+#ficbook-export-buttons *::before,
+#ficbook-export-buttons *::after {
+    box-sizing: border-box;
+}
+.fbe-inline-trigger {
+    width: 148px;
+    min-width: 148px;
+    max-width: 148px;
+    justify-content: center;
+    gap: 5px;
+    overflow: hidden;
+    white-space: nowrap;
+    background: #4f86c6 !important;
+    border: 1px solid #2f639d !important;
+    color: #ffffff !important;
+    font-weight: 700;
+    transition: background-color .15s ease, border-color .15s ease;
+}
+.fbe-inline-trigger:hover,
+.fbe-inline-trigger:focus-visible,
+.fbe-inline-trigger[aria-expanded="true"] {
+    background: #356da9 !important;
+    border-color: #244f7c !important;
+    color: #ffffff !important;
+}
+.fbe-inline-trigger-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.fbe-inline-trigger.is-busy {
+    cursor: pointer;
+}
+.fbe-inline-trigger-chevron {
+    margin-left: 1px;
+    font-size: 9px;
+    line-height: 1;
+    opacity: .8;
+    transition: transform .15s ease;
+}
+.fbe-inline-trigger[aria-expanded="true"] .fbe-inline-trigger-chevron {
+    transform: rotate(180deg);
+}
+.fbe-inline-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    display: none;
+    min-width: 154px;
+    padding: 5px;
+    border: 1px solid rgba(64, 48, 35, .18);
+    border-radius: 8px;
+    background: #fffaf3;
+    box-shadow: 0 8px 22px rgba(45, 31, 22, .2);
+    z-index: 10020;
+}
+.fbe-inline-menu.is-open {
+    display: grid;
+    gap: 3px;
+}
+.fbe-inline-menu-item {
+    display: block;
+    width: 100%;
+    min-height: 34px;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #3f2d21;
+    cursor: pointer;
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.2;
+    text-align: left;
+    white-space: nowrap;
+}
+.fbe-inline-menu-item:hover,
+.fbe-inline-menu-item:focus-visible {
+    background: rgba(122, 87, 52, .12);
+    outline: none;
+}
+body.dark-theme .fbe-inline-menu {
+    border-color: rgba(255, 255, 255, .14);
+    background: #2d2723;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, .42);
+}
+body.dark-theme .fbe-inline-menu-item {
+    color: #f4ece5;
+}
+body.dark-theme .fbe-inline-menu-item:hover,
+body.dark-theme .fbe-inline-menu-item:focus-visible {
+    background: rgba(255, 255, 255, .09);
+}
 
-    // === ГЛОБАЛЬНАЯ ОТМЕНА ВСЕХ ЗАГРУЗОК ===
-    let cancelCallbacks = new Set();
+@media (max-width: 767px) {
+    .hat-actions-container > .d-flex.flex-wrap.justify-content-center {
+        justify-content: flex-start !important;
+        width: 100%;
+    }
+}
 
-    // Вызываем все зарегистрированные cancel-функции
-    stopBtn.onclick = () => {
-        stopBtn.textContent = "Остановка...";
+@media (max-width: 520px) {
+    .fbe-inline-menu {
+        left: auto;
+        right: 0;
+    }
+}
+`;
 
-        cancelCallbacks.forEach(cb => cb());
-        cancelCallbacks.clear();
+    document.querySelector(`#${style.id}`)?.remove();
+    document.head.appendChild(style);
 
-        // НЕ обнуляем activeDownloads
-        updateStopButton();
-    };
+    const wrapper = document.createElement("div");
+    wrapper.id = "ficbook-export-buttons";
 
-    // === ОБЁРТКА ДЛЯ ЗАПУСКА ЛЮБОЙ ЗАГРУЗКИ ===
-    function runDownload(startFn, button, label) {
-        let cancelled = false;
+    const menu = document.createElement("div");
+    menu.className = "fbe-inline-menu";
+    menu.id = "ficbook-export-format-menu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", "Выберите формат файла");
 
-        // Регистрируем отмену
-        const cancelFn = () => {
-            cancelled = true;
-        };
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "ds-btn ds-btn-regular ds-btn-mini fbe-inline-trigger";
+    trigger.setAttribute("aria-haspopup", "menu");
+    trigger.setAttribute("aria-controls", menu.id);
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.innerHTML = `
+<span class="fbe-inline-trigger-label">Скачать</span>
+<span class="fbe-inline-trigger-chevron" aria-hidden="true">▼</span>`;
 
-        cancelCallbacks.add(cancelFn);
+    const triggerLabel = trigger.querySelector(".fbe-inline-trigger-label");
+    const triggerChevron = trigger.querySelector(".fbe-inline-trigger-chevron");
+    let activeDownload = null;
 
-        activeDownloads++;
-        updateStopButton();
+    const configs = [
+        { format: "FB2", start: exporters.fb2 },
+        { format: "EPUB", start: exporters.epub },
+        { format: "PDF", start: exporters.pdf },
+        { format: "TXT", start: exporters.txt }
+    ];
 
-        button.disabled = true;
-        button.textContent = label;
-
-        startFn(
-            (current, total) => {
-                if (cancelled) throw new Error("cancelled");
-                // Обновление прогресса загрузки
-                button.textContent = `${label}: Загружается глава ${current}/${total}`;
-            },
-            () => cancelled
-        )
-            .catch(err => {
-                if (err.message === "cancelled") {
-                    button.textContent = "Отменено";
-                }
-            })
-            .finally(() => {
-
-                // Удаляем callback отмены
-                cancelCallbacks.delete(cancelFn);
-
-                activeDownloads--;
-                updateStopButton();
-
-                button.disabled = false;
-                button.textContent = label;
-                stopBtn.textContent = "Остановить загрузку";
-            });
+    function closeMenu() {
+        menu.classList.remove("is-open");
+        trigger.setAttribute("aria-expanded", "false");
     }
 
-    // === FB2 экспорт ===
-    fb2Btn.onclick = () => {
-        runDownload(createFB2, fb2Btn, "Скачать FB2");
+    function openMenu() {
+        if (activeDownload) return;
+        menu.classList.add("is-open");
+        trigger.setAttribute("aria-expanded", "true");
+        menu.querySelector(".fbe-inline-menu-item")?.focus();
+    }
+
+    function resetTrigger() {
+        trigger.classList.remove("is-busy");
+        triggerLabel.textContent = "Скачать";
+        triggerChevron.textContent = "▼";
+        trigger.title = "Выбрать формат файла";
+    }
+
+    function cancelActiveDownload() {
+        if (!activeDownload || activeDownload.stopping) return;
+        activeDownload.stopping = true;
+        activeDownload.cancelled = true;
+        triggerLabel.textContent = "Остановка…";
+        triggerChevron.textContent = "";
+    }
+
+    async function runDownload(config) {
+        if (activeDownload) return;
+        closeMenu();
+
+        const state = { cancelled: false, stopping: false, format: config.format };
+        activeDownload = state;
+        trigger.classList.add("is-busy");
+        triggerLabel.textContent = `Подготовка ${config.format}`;
+        triggerChevron.textContent = "×";
+        trigger.title = `Остановить экспорт ${config.format}`;
+
+        try {
+            await config.start(
+                (current, total) => {
+                    if (state.cancelled) throw new Error("cancelled");
+                    triggerLabel.textContent = `${config.format} ${current}/${total}`;
+                },
+                () => state.cancelled
+            );
+        } catch (error) {
+            if (error?.message !== "cancelled") {
+                console.error(`Ошибка экспорта ${config.format}:`, error);
+                alert(`Не удалось создать файл ${config.format}:\n${error?.message || error}`);
+            }
+        } finally {
+            if (activeDownload === state) activeDownload = null;
+            resetTrigger();
+        }
+    }
+
+    configs.forEach(config => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "fbe-inline-menu-item";
+        item.setAttribute("role", "menuitem");
+        item.textContent = `Скачать ${config.format}`;
+        item.addEventListener("click", event => {
+            event.stopPropagation();
+            runDownload(config);
+        });
+        menu.appendChild(item);
+    });
+
+    trigger.addEventListener("click", event => {
+        event.stopPropagation();
+        if (activeDownload) {
+            cancelActiveDownload();
+            return;
+        }
+        if (menu.classList.contains("is-open")) closeMenu();
+        else openMenu();
+    });
+
+    function onDocumentClick(event) {
+        if (!wrapper.contains(event.target)) closeMenu();
+    }
+
+    function onKeyDown(event) {
+        if (event.key === "Escape") {
+            closeMenu();
+            trigger.focus();
+        }
+    }
+
+    document.addEventListener("click", onDocumentClick);
+    document.addEventListener("keydown", onKeyDown);
+
+    wrapper.append(menu, trigger);
+
+    /**
+     * Ставит кнопку в основную строку действий вместе с лайками,
+     * комментариями и наградами. Если Ficbook пересоздал панель,
+     * кнопка автоматически возвращается в новый контейнер.
+     */
+    function insertWrapper() {
+        const placement = findPlacement();
+        if (!placement?.row) return false;
+
+        const { row } = placement;
+        if (wrapper.parentElement !== row) {
+            row.appendChild(wrapper);
+        }
+        return true;
+    }
+
+    insertWrapper();
+    resetTrigger();
+
+    // Ficbook может дорисовывать или полностью пересоздавать панель действий.
+    // Наблюдатель с небольшой задержкой возвращает кнопку на правильное место.
+    let reinjectTimer = null;
+    const placementObserver = new MutationObserver(() => {
+        if (reinjectTimer !== null) return;
+        reinjectTimer = window.setTimeout(() => {
+            reinjectTimer = null;
+            insertWrapper();
+        }, 150);
+    });
+    placementObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true
+    });
+
+    window[cleanupKey] = () => {
+        document.removeEventListener("click", onDocumentClick);
+        document.removeEventListener("keydown", onKeyDown);
+        placementObserver.disconnect();
+        if (reinjectTimer !== null) window.clearTimeout(reinjectTimer);
+        wrapper.remove();
+        style.remove();
+        delete window[cleanupKey];
     };
 
-    // === EPUB экспорт ===
-    epubBtn.onclick = () => {
-        runDownload(createEPUB, epubBtn, "Скачать EPUB");
-    };
-
-    container.appendChild(stopBtn);
-    container.appendChild(fb2Btn);
-    container.appendChild(epubBtn);
-    document.body.appendChild(container);
+    return true;
 }
 
 ;// ./src/main.js
@@ -1976,22 +2100,31 @@ function createButtons(createFB2, createEPUB) {
 
 
 
+
+
+const exporters = { fb2: createFB2, epub: createEPUB, txt: createTXT, pdf: createPDF };
+let observer = null;
+let insertionScheduled = false;
+
 function insertButtons() {
-    if (!document.querySelector("#ficbook-export-buttons")) {
-        console.log("Вставляем кнопки");
-        createButtons(createFB2, createEPUB);
-    }
+    insertionScheduled = false;
+    if (!document.body || document.querySelector("#ficbook-export-buttons .fbe-inline-trigger")) return;
+    createButtons(exporters);
 }
 
-// 1. Сразу пытаемся вставить кнопки.
-// Если DOM уже готов — кнопки появятся мгновенно.
-// Если нет — их добавит DOMContentLoaded ниже.
-insertButtons();
+function scheduleInsert() {
+    if (insertionScheduled) return;
+    insertionScheduled = true;
+    requestAnimationFrame(insertButtons);
+}
 
-// 2. Если DOM ещё не готов — ждём
-document.addEventListener("DOMContentLoaded", insertButtons);
+function start() {
+    insertButtons();
+    if (observer || !document.body) return;
+    observer = new MutationObserver(scheduleInsert);
+    observer.observe(document.body, { childList: true, subtree: true });
+}
 
-// 3. Подстраховка: если сайт перерисует страницу
-const observer = new MutationObserver(insertButtons);
-observer.observe(document.body, { childList: true, subtree: true });
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, { once: true });
+else start();
 
