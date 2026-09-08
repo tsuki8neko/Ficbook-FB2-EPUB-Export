@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.8.2...v1.9.0) (2026-09-08)
+
+
+### Features
+
+* improve author detection and allow export with missing metadata ([1bdcd4e](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/1bdcd4e016d9b16204e86ebd60aa8f6df1085fe9))
+
 ## [1.8.2](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.8.1...v1.8.2) (2026-08-04)
 
 
