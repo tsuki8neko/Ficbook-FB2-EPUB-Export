@@ -152,11 +152,13 @@ function buildHeader(meta) {
 
 export async function createTXT(
     onProgress = () => {},
-    isCancelled = () => false
+    isCancelled = () => false,
+    options = {}
 ) {
     const { meta, chapters } = await collectBook(
         onProgress,
-        isCancelled
+        isCancelled,
+        options
     );
 
     const parts = [

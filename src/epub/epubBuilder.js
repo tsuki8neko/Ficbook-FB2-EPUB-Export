@@ -39,7 +39,7 @@ ${notes.map(note => `<aside id="${escapeXml(note.id)}" epub:type="footnote"><p><
 </div>`;
 }
 
-export async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
+export async function createEPUB(onProgress = () => {}, isCancelled = () => false, options = {}) {
     const JSZip = await loadExternalScript(
         [
             "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
@@ -48,7 +48,7 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
         "JSZip"
     );
 
-    const book = await collectBook(onProgress, isCancelled);
+    const book = await collectBook(onProgress, isCancelled, options);
     const { meta, cover } = book;
     const chapters = book.chapters.map(chapter => ({
         ...chapter,

@@ -463,7 +463,8 @@ export function buildPdfDefinition({
 
 export async function createPDF(
     onProgress = () => {},
-    isCancelled = () => false
+    isCancelled = () => false,
+    options = {}
 ) {
     const pdfMake = await loadExternalScript(
         [
@@ -490,7 +491,8 @@ export async function createPDF(
 
     const book = await collectBook(
         onProgress,
-        isCancelled
+        isCancelled,
+        options
     );
 
     const { meta } = book;

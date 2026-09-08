@@ -105,7 +105,38 @@ async function loadChapters(urls, onProgress, isCancelled) {
     return results;
 }
 
-export async function collectBook(onProgress = () => {}, isCancelled = () => false) {
+function metadataWarnings(doc, meta) {
+    const warnings = [];
+    const hasTitleNode = !!(
+        doc.querySelector("h1.heading[itemprop='name']") ||
+        doc.querySelector("h1.heading[itemprop='headline']") ||
+        doc.querySelector("h1.heading") ||
+        doc.querySelector("h1[itemprop='name']")
+    );
+
+    if (!hasTitleNode) warnings.push("не найдено название произведения");
+    if (!meta.mainAuthor || meta.mainAuthor.missing) warnings.push("не найден автор");
+    if (!meta.fandom) warnings.push("не найден фэндом");
+    if (!meta.direction) warnings.push("не найдена направленность");
+    if (!meta.rating) warnings.push("не найден рейтинг");
+    if (!meta.status) warnings.push("не найден статус произведения");
+    if (!meta.size) warnings.push("не найден размер произведения");
+    if (!meta.description) warnings.push("не найдено описание");
+
+    return warnings;
+}
+
+function createMetadataWarningError(warnings) {
+    const error = new Error(
+        "Некоторые данные произведения не удалось распознать. " +
+        "Экспорт можно продолжить после подтверждения пользователя."
+    );
+    error.name = "MetadataWarningError";
+    error.warnings = warnings;
+    return error;
+}
+
+export async function collectBook(onProgress = () => {}, isCancelled = () => false, options = {}) {
     const workUrl = currentWorkUrl();
     const doc = await loadWorkDocument(workUrl);
 
@@ -114,9 +145,13 @@ export async function collectBook(onProgress = () => {}, isCancelled = () => fal
     const originalAuthor = getOriginalAuthor(doc);
     const originalWork = getOriginalWork(doc);
     const translators = authors.filter(author => isRole(author, "переводчик"));
-    const mainAuthor = authors.find(author => isRole(author, "автор")) || originalAuthor || translators[0] || null;
-
-    if (!mainAuthor) throw new Error("Автор не найден. Возможно, Ficbook изменил разметку страницы.");
+    const detectedMainAuthor = authors.find(author => isRole(author, "автор")) || originalAuthor || translators[0] || null;
+    const mainAuthor = detectedMainAuthor || {
+        name: "Неизвестный автор",
+        url: "",
+        role: "автор",
+        missing: true
+    };
 
     const meta = {
         title,
@@ -133,6 +168,13 @@ export async function collectBook(onProgress = () => {}, isCancelled = () => fal
         series: extractSeries(doc),
         sourceUrl: workUrl
     };
+
+    const warnings = metadataWarnings(doc, meta);
+    meta.warnings = warnings;
+
+    if (warnings.length && !options.allowIncompleteMetadata) {
+        throw createMetadataWarningError(warnings);
+    }
 
     const cover = await getCover(doc);
     if (isCancelled()) throw new Error("cancelled");

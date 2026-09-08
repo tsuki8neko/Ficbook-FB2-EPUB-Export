@@ -154,6 +154,105 @@ body.dark-theme .fbe-inline-menu-item:focus-visible {
     background: rgba(255, 255, 255, .09);
 }
 
+.fbe-warning-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(0, 0, 0, .55);
+}
+.fbe-warning-dialog {
+    width: min(520px, 100%);
+    max-height: min(680px, calc(100vh - 40px));
+    overflow: auto;
+    padding: 20px;
+    border: 1px solid rgba(122, 36, 36, .3);
+    border-radius: 12px;
+    background: #fffaf7;
+    box-shadow: 0 18px 55px rgba(0, 0, 0, .35);
+    color: #332822;
+}
+.fbe-warning-title {
+    margin: 0 0 10px;
+    color: #c62828;
+    font-size: 20px;
+    line-height: 1.25;
+    font-weight: 800;
+}
+.fbe-warning-text {
+    margin: 0 0 12px;
+    color: #b71c1c;
+    font-weight: 700;
+    line-height: 1.45;
+}
+.fbe-warning-list {
+    margin: 0 0 16px 20px;
+    padding: 0;
+    color: #b71c1c;
+    font-weight: 700;
+}
+.fbe-warning-list li + li {
+    margin-top: 4px;
+}
+.fbe-warning-note {
+    margin: 0 0 18px;
+    line-height: 1.45;
+}
+.fbe-warning-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
+}
+.fbe-warning-button {
+    min-height: 38px;
+    padding: 8px 14px;
+    border-radius: 7px;
+    border: 1px solid rgba(60, 45, 36, .25);
+    background: #ffffff;
+    color: #332822;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+}
+.fbe-warning-button:hover,
+.fbe-warning-button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(79, 134, 198, .2);
+}
+.fbe-warning-button-confirm {
+    border-color: #a91f1f;
+    background: #c62828;
+    color: #ffffff;
+}
+.fbe-warning-button-confirm:hover,
+.fbe-warning-button-confirm:focus-visible {
+    background: #a91f1f;
+}
+body.dark-theme .fbe-warning-dialog {
+    border-color: rgba(255, 105, 105, .35);
+    background: #2d2723;
+    color: #f4ece5;
+}
+body.dark-theme .fbe-warning-title,
+body.dark-theme .fbe-warning-text,
+body.dark-theme .fbe-warning-list {
+    color: #ff7777;
+}
+body.dark-theme .fbe-warning-button {
+    border-color: rgba(255, 255, 255, .2);
+    background: #3a322d;
+    color: #f4ece5;
+}
+body.dark-theme .fbe-warning-button-confirm {
+    border-color: #d94848;
+    background: #b72a2a;
+    color: #ffffff;
+}
+
 @media (max-width: 767px) {
     .hat-actions-container > .d-flex.flex-wrap.justify-content-center {
         justify-content: flex-start !important;
@@ -221,6 +320,81 @@ body.dark-theme .fbe-inline-menu-item:focus-visible {
         trigger.title = "Выбрать формат файла";
     }
 
+
+    function showMetadataWarning(warnings, format) {
+        return new Promise(resolve => {
+            const overlay = document.createElement("div");
+            overlay.className = "fbe-warning-overlay";
+            overlay.setAttribute("role", "presentation");
+
+            const dialog = document.createElement("div");
+            dialog.className = "fbe-warning-dialog";
+            dialog.setAttribute("role", "alertdialog");
+            dialog.setAttribute("aria-modal", "true");
+            dialog.setAttribute("aria-labelledby", "fbe-warning-title");
+
+            const title = document.createElement("h2");
+            title.className = "fbe-warning-title";
+            title.id = "fbe-warning-title";
+            title.textContent = "ВНИМАНИЕ: часть данных не найдена";
+
+            const text = document.createElement("p");
+            text.className = "fbe-warning-text";
+            text.textContent = "Ficbook Exporter не смог распознать некоторые данные страницы:";
+
+            const list = document.createElement("ul");
+            list.className = "fbe-warning-list";
+            (warnings?.length ? warnings : ["неизвестная ошибка распознавания метаданных"]).forEach(message => {
+                const item = document.createElement("li");
+                item.textContent = message;
+                list.appendChild(item);
+            });
+
+            const note = document.createElement("p");
+            note.className = "fbe-warning-note";
+            note.textContent = `Можно продолжить и скачать ${format}, но отсутствующие данные будут пропущены или заменены безопасным значением.`;
+
+            const actions = document.createElement("div");
+            actions.className = "fbe-warning-actions";
+
+            const cancelButton = document.createElement("button");
+            cancelButton.type = "button";
+            cancelButton.className = "fbe-warning-button";
+            cancelButton.textContent = "Отмена";
+
+            const confirmButton = document.createElement("button");
+            confirmButton.type = "button";
+            confirmButton.className = "fbe-warning-button fbe-warning-button-confirm";
+            confirmButton.textContent = "Скачать всё равно";
+
+            actions.append(cancelButton, confirmButton);
+            dialog.append(title, text, list, note, actions);
+            overlay.appendChild(dialog);
+            document.body.appendChild(overlay);
+
+            const finish = accepted => {
+                document.removeEventListener("keydown", onWarningKeyDown, true);
+                overlay.remove();
+                resolve(accepted);
+            };
+
+            const onWarningKeyDown = event => {
+                if (event.key === "Escape") {
+                    event.preventDefault();
+                    finish(false);
+                }
+            };
+
+            cancelButton.addEventListener("click", () => finish(false), { once: true });
+            confirmButton.addEventListener("click", () => finish(true), { once: true });
+            overlay.addEventListener("click", event => {
+                if (event.target === overlay) finish(false);
+            });
+            document.addEventListener("keydown", onWarningKeyDown, true);
+            confirmButton.focus();
+        });
+    }
+
     function cancelActiveDownload() {
         if (!activeDownload || activeDownload.stopping) return;
         activeDownload.stopping = true;
@@ -241,13 +415,43 @@ body.dark-theme .fbe-inline-menu-item:focus-visible {
         trigger.title = `Остановить экспорт ${config.format}`;
 
         try {
-            await config.start(
-                (current, total) => {
-                    if (state.cancelled) throw new Error("cancelled");
-                    triggerLabel.textContent = `${config.format} ${current}/${total}`;
-                },
-                () => state.cancelled
-            );
+            let options = {};
+
+            while (!state.cancelled) {
+                try {
+                    await config.start(
+                        (current, total) => {
+                            if (state.cancelled) throw new Error("cancelled");
+                            triggerLabel.textContent = `${config.format} ${current}/${total}`;
+                        },
+                        () => state.cancelled,
+                        options
+                    );
+                    break;
+                } catch (error) {
+                    if (
+                        error?.name === "MetadataWarningError" &&
+                        !options.allowIncompleteMetadata
+                    ) {
+                        triggerLabel.textContent = "Нужно подтверждение";
+                        triggerChevron.textContent = "!";
+
+                        const accepted = await showMetadataWarning(
+                            error.warnings,
+                            config.format
+                        );
+
+                        if (!accepted || state.cancelled) break;
+
+                        options = { allowIncompleteMetadata: true };
+                        triggerLabel.textContent = `Подготовка ${config.format}`;
+                        triggerChevron.textContent = "×";
+                        continue;
+                    }
+
+                    throw error;
+                }
+            }
         } catch (error) {
             if (error?.message !== "cancelled") {
                 console.error(`Ошибка экспорта ${config.format}:`, error);

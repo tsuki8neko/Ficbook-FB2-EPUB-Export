@@ -30,8 +30,8 @@ function renderFb2Footnotes(chapter, globalIndexRef) {
     return { content, notes };
 }
 
-export async function createFB2(onProgress = () => {}, isCancelled = () => false) {
-    const book = await collectBook(onProgress, isCancelled);
+export async function createFB2(onProgress = () => {}, isCancelled = () => false, options = {}) {
+    const book = await collectBook(onProgress, isCancelled, options);
     const { meta, cover, chapters } = book;
     const bookId = createBookId();
     const globalFootnoteIndex = { value: 1 };
