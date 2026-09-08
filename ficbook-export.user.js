@@ -3,8 +3,8 @@
 // @name:ru        Скачивание книг с Фикбука в FB2, EPUB, TXT и PDF
 // @name:en        Ficbook Exporter — FB2, EPUB, TXT and PDF
 // @namespace      http://tampermonkey.net/
-// @version        1.8.2
-// @build          2026-08-04 06:33
+// @version        1.9.0
+// @build          2026-09-08 12:36
 // @description    Export Ficbook works to FB2, EPUB, TXT and PDF with embedded covers
 // @description:en Export Ficbook works to FB2, EPUB, TXT and PDF with embedded covers
 // @description:ru Экспорт произведений Фикбука в FB2, EPUB, TXT и PDF со встроенными обложками
@@ -42,23 +42,202 @@ function absoluteUrl(value) {
     try { return new URL(value, base).href; } catch (_) { return value; }
 }
 
+function cleanText(value) {
+    return String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function normalizeRole(value, fallback = "автор") {
+    const text = cleanText(value)
+        .toLowerCase()
+        .replace(/[:：]+$/, "")
+        .trim();
+
+    if (!text) return fallback;
+    if (/автор\s+оригинала/.test(text)) return "автор оригинала";
+    if (/соавтор/.test(text)) return "соавтор";
+    if (/переводчик/.test(text)) return "переводчик";
+    if (/\bбета\b/.test(text)) return "бета";
+    if (/\bгамма\b/.test(text)) return "гамма";
+    if (/редактор/.test(text)) return "редактор";
+    if (/\bавтор\b/.test(text)) return "автор";
+
+    return fallback;
+}
+
+function roleFromContainer(node, fallback = "автор") {
+    if (!node) return fallback;
+
+    const explicitRole = node.querySelector?.(
+        ".small-text.text-muted, .text-muted, [class*='role'], [class*='creator-role'], [data-role]"
+    );
+
+    const explicitText = cleanText(
+        explicitRole?.getAttribute?.("data-role") ||
+        explicitRole?.textContent
+    );
+
+    if (explicitText) return normalizeRole(explicitText, fallback);
+
+    const containerText = cleanText(node.textContent);
+    return normalizeRole(containerText, fallback);
+}
+
+function addUnique(result, seen, person) {
+    const name = cleanText(person?.name);
+    if (!name) return;
+
+    const url = absoluteUrl(person?.url || "");
+    const role = normalizeRole(person?.role || "автор");
+    const key = `${url || name.toLowerCase()}|${role}`;
+
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push({ name, url, role });
+}
+
+function getHeaderRoots(doc) {
+    const title =
+        doc.querySelector("h1.heading[itemprop='name']") ||
+        doc.querySelector("h1.heading[itemprop='headline']") ||
+        doc.querySelector("h1.heading") ||
+        doc.querySelector("h1[itemprop='name']") ||
+        doc.querySelector("h1");
+
+    const candidates = [
+        doc.querySelector(".fanfic-hat-body"),
+        doc.querySelector(".fanfic-hat"),
+        doc.querySelector("section.chapter-info"),
+        doc.querySelector("[itemtype*='CreativeWork']"),
+        title?.closest("section"),
+        title?.closest("article"),
+        title?.parentElement?.parentElement,
+        title?.parentElement
+    ].filter(Boolean);
+
+    return [...new Set(candidates)];
+}
+
+function collectLegacyAuthors(root, result, seen) {
+    root.querySelectorAll(".creator-info").forEach(container => {
+        const nameNode = container.querySelector(
+            ".creator-username, a[href*='/authors/'], [itemprop='author'] a, a[itemprop='author']"
+        );
+        if (!nameNode) return;
+
+        addUnique(result, seen, {
+            name: nameNode.textContent,
+            url: nameNode.getAttribute?.("href") || "",
+            role: roleFromContainer(container)
+        });
+    });
+}
+
+function collectSemanticAuthors(root, result, seen) {
+    const selectors = [
+        "[itemprop='author'] a[href*='/authors/']",
+        "a[itemprop='author'][href*='/authors/']",
+        "[itemprop='creator'] a[href*='/authors/']",
+        "a[itemprop='creator'][href*='/authors/']"
+    ].join(", ");
+
+    root.querySelectorAll(selectors).forEach(link => {
+        const container =
+            link.closest(".creator-info, [class*='creator'], [class*='author'], .mb-10, li, div") ||
+            link.parentElement;
+
+        addUnique(result, seen, {
+            name: link.textContent,
+            url: link.getAttribute("href"),
+            role: roleFromContainer(container)
+        });
+    });
+}
+
+function collectAuthorLinks(root, result, seen) {
+    root.querySelectorAll("a[href*='/authors/']").forEach(link => {
+        if (link.closest(".comments, .comment, [class*='comment'], nav, header.site-header, footer")) return;
+
+        const container =
+            link.closest(".creator-info, [class*='creator'], [class*='author'], .mb-10, li") ||
+            link.parentElement;
+
+        const role = roleFromContainer(container, "автор");
+
+        addUnique(result, seen, {
+            name: link.textContent || link.getAttribute("title") || "",
+            url: link.getAttribute("href"),
+            role
+        });
+    });
+}
+
+function collectJsonLdAuthors(doc, result, seen) {
+    doc.querySelectorAll("script[type='application/ld+json']").forEach(script => {
+        let data;
+        try {
+            data = JSON.parse(script.textContent || "null");
+        } catch (_) {
+            return;
+        }
+
+        const queue = Array.isArray(data) ? [...data] : [data];
+
+        while (queue.length) {
+            const item = queue.shift();
+            if (!item || typeof item !== "object") continue;
+
+            if (Array.isArray(item["@graph"])) queue.push(...item["@graph"]);
+
+            const authors = item.author || item.creator;
+            const values = Array.isArray(authors) ? authors : authors ? [authors] : [];
+
+            values.forEach(author => {
+                if (typeof author === "string") {
+                    addUnique(result, seen, { name: author, role: "автор" });
+                    return;
+                }
+
+                if (!author || typeof author !== "object") return;
+                addUnique(result, seen, {
+                    name: author.name || author.alternateName || "",
+                    url: author.url || author["@id"] || "",
+                    role: "автор"
+                });
+            });
+        }
+    });
+}
+
+function collectMetaAuthor(doc, result, seen) {
+    const node =
+        doc.querySelector("meta[name='author']") ||
+        doc.querySelector("meta[property='article:author']");
+
+    const name = cleanText(node?.getAttribute("content"));
+    if (name) addUnique(result, seen, { name, role: "автор" });
+}
+
 function getAuthors(doc = document) {
-    const hat = doc.querySelector(".fanfic-hat-body") || doc;
-    const creators = hat.querySelectorAll(".creator-info");
+    const result = [];
+    const seen = new Set();
+    const roots = getHeaderRoots(doc);
 
-    return Array.from(creators)
-        .map(c => {
-            const nameNode = c.querySelector(".creator-username");
-            const roleNode = c.querySelector(".small-text.text-muted");
-            const role = roleNode?.textContent?.trim().toLowerCase().replace(/[:：]+$/, "") || "автор";
+    // Старый и наиболее точный вариант разметки Ficbook.
+    roots.forEach(root => collectLegacyAuthors(root, result, seen));
 
-            return {
-                name: nameNode?.textContent?.trim() || "",
-                url: absoluteUrl(nameNode?.getAttribute("href")),
-                role
-            };
-        })
-        .filter(author => author.name);
+    // Семантическая разметка, если сайт перестал использовать старые CSS-классы.
+    roots.forEach(root => collectSemanticAuthors(root, result, seen));
+
+    // Резервный вариант: профиль участника Ficbook всегда ведёт на /authors/<id>.
+    roots.forEach(root => collectAuthorLinks(root, result, seen));
+
+    // Последние резервы на случай очередной переделки шапки страницы.
+    if (!result.length) collectJsonLdAuthors(doc, result, seen);
+    if (!result.length) collectMetaAuthor(doc, result, seen);
+
+    return result;
 }
 
 ;// ./src/core/getMeta.js
@@ -1064,7 +1243,38 @@ async function loadChapters(urls, onProgress, isCancelled) {
     return results;
 }
 
-async function collectBook(onProgress = () => {}, isCancelled = () => false) {
+function metadataWarnings(doc, meta) {
+    const warnings = [];
+    const hasTitleNode = !!(
+        doc.querySelector("h1.heading[itemprop='name']") ||
+        doc.querySelector("h1.heading[itemprop='headline']") ||
+        doc.querySelector("h1.heading") ||
+        doc.querySelector("h1[itemprop='name']")
+    );
+
+    if (!hasTitleNode) warnings.push("не найдено название произведения");
+    if (!meta.mainAuthor || meta.mainAuthor.missing) warnings.push("не найден автор");
+    if (!meta.fandom) warnings.push("не найден фэндом");
+    if (!meta.direction) warnings.push("не найдена направленность");
+    if (!meta.rating) warnings.push("не найден рейтинг");
+    if (!meta.status) warnings.push("не найден статус произведения");
+    if (!meta.size) warnings.push("не найден размер произведения");
+    if (!meta.description) warnings.push("не найдено описание");
+
+    return warnings;
+}
+
+function createMetadataWarningError(warnings) {
+    const error = new Error(
+        "Некоторые данные произведения не удалось распознать. " +
+        "Экспорт можно продолжить после подтверждения пользователя."
+    );
+    error.name = "MetadataWarningError";
+    error.warnings = warnings;
+    return error;
+}
+
+async function collectBook(onProgress = () => {}, isCancelled = () => false, options = {}) {
     const workUrl = currentWorkUrl();
     const doc = await loadWorkDocument(workUrl);
 
@@ -1073,9 +1283,13 @@ async function collectBook(onProgress = () => {}, isCancelled = () => false) {
     const originalAuthor = getOriginalAuthor(doc);
     const originalWork = getOriginalWork(doc);
     const translators = authors.filter(author => isRole(author, "переводчик"));
-    const mainAuthor = authors.find(author => isRole(author, "автор")) || originalAuthor || translators[0] || null;
-
-    if (!mainAuthor) throw new Error("Автор не найден. Возможно, Ficbook изменил разметку страницы.");
+    const detectedMainAuthor = authors.find(author => isRole(author, "автор")) || originalAuthor || translators[0] || null;
+    const mainAuthor = detectedMainAuthor || {
+        name: "Неизвестный автор",
+        url: "",
+        role: "автор",
+        missing: true
+    };
 
     const meta = {
         title,
@@ -1092,6 +1306,13 @@ async function collectBook(onProgress = () => {}, isCancelled = () => false) {
         series: extractSeries(doc),
         sourceUrl: workUrl
     };
+
+    const warnings = metadataWarnings(doc, meta);
+    meta.warnings = warnings;
+
+    if (warnings.length && !options.allowIncompleteMetadata) {
+        throw createMetadataWarningError(warnings);
+    }
 
     const cover = await getCover(doc);
     if (isCancelled()) throw new Error("cancelled");
@@ -1405,8 +1626,8 @@ function renderFb2Footnotes(chapter, globalIndexRef) {
     return { content, notes };
 }
 
-async function createFB2(onProgress = () => {}, isCancelled = () => false) {
-    const book = await collectBook(onProgress, isCancelled);
+async function createFB2(onProgress = () => {}, isCancelled = () => false, options = {}) {
+    const book = await collectBook(onProgress, isCancelled, options);
     const { meta, cover, chapters } = book;
     const bookId = createBookId();
     const globalFootnoteIndex = { value: 1 };
@@ -1962,7 +2183,7 @@ ${notes.map(note => `<aside id="${escapeXml(note.id)}" epub:type="footnote"><p><
 </div>`;
 }
 
-async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
+async function createEPUB(onProgress = () => {}, isCancelled = () => false, options = {}) {
     const JSZip = await loadExternalScript(
         [
             "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
@@ -1971,7 +2192,7 @@ async function createEPUB(onProgress = () => {}, isCancelled = () => false) {
         "JSZip"
     );
 
-    const book = await collectBook(onProgress, isCancelled);
+    const book = await collectBook(onProgress, isCancelled, options);
     const { meta, cover } = book;
     const chapters = book.chapters.map(chapter => ({
         ...chapter,
@@ -2164,11 +2385,13 @@ function buildHeader(meta) {
 
 async function createTXT(
     onProgress = () => {},
-    isCancelled = () => false
+    isCancelled = () => false,
+    options = {}
 ) {
     const { meta, chapters } = await collectBook(
         onProgress,
-        isCancelled
+        isCancelled,
+        options
     );
 
     const parts = [
@@ -2689,7 +2912,8 @@ function buildPdfDefinition({
 
 async function createPDF(
     onProgress = () => {},
-    isCancelled = () => false
+    isCancelled = () => false,
+    options = {}
 ) {
     const pdfMake = await loadExternalScript(
         [
@@ -2716,7 +2940,8 @@ async function createPDF(
 
     const book = await collectBook(
         onProgress,
-        isCancelled
+        isCancelled,
+        options
     );
 
     const { meta } = book;
@@ -2898,6 +3123,105 @@ body.dark-theme .fbe-inline-menu-item:focus-visible {
     background: rgba(255, 255, 255, .09);
 }
 
+.fbe-warning-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(0, 0, 0, .55);
+}
+.fbe-warning-dialog {
+    width: min(520px, 100%);
+    max-height: min(680px, calc(100vh - 40px));
+    overflow: auto;
+    padding: 20px;
+    border: 1px solid rgba(122, 36, 36, .3);
+    border-radius: 12px;
+    background: #fffaf7;
+    box-shadow: 0 18px 55px rgba(0, 0, 0, .35);
+    color: #332822;
+}
+.fbe-warning-title {
+    margin: 0 0 10px;
+    color: #c62828;
+    font-size: 20px;
+    line-height: 1.25;
+    font-weight: 800;
+}
+.fbe-warning-text {
+    margin: 0 0 12px;
+    color: #b71c1c;
+    font-weight: 700;
+    line-height: 1.45;
+}
+.fbe-warning-list {
+    margin: 0 0 16px 20px;
+    padding: 0;
+    color: #b71c1c;
+    font-weight: 700;
+}
+.fbe-warning-list li + li {
+    margin-top: 4px;
+}
+.fbe-warning-note {
+    margin: 0 0 18px;
+    line-height: 1.45;
+}
+.fbe-warning-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
+}
+.fbe-warning-button {
+    min-height: 38px;
+    padding: 8px 14px;
+    border-radius: 7px;
+    border: 1px solid rgba(60, 45, 36, .25);
+    background: #ffffff;
+    color: #332822;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+}
+.fbe-warning-button:hover,
+.fbe-warning-button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(79, 134, 198, .2);
+}
+.fbe-warning-button-confirm {
+    border-color: #a91f1f;
+    background: #c62828;
+    color: #ffffff;
+}
+.fbe-warning-button-confirm:hover,
+.fbe-warning-button-confirm:focus-visible {
+    background: #a91f1f;
+}
+body.dark-theme .fbe-warning-dialog {
+    border-color: rgba(255, 105, 105, .35);
+    background: #2d2723;
+    color: #f4ece5;
+}
+body.dark-theme .fbe-warning-title,
+body.dark-theme .fbe-warning-text,
+body.dark-theme .fbe-warning-list {
+    color: #ff7777;
+}
+body.dark-theme .fbe-warning-button {
+    border-color: rgba(255, 255, 255, .2);
+    background: #3a322d;
+    color: #f4ece5;
+}
+body.dark-theme .fbe-warning-button-confirm {
+    border-color: #d94848;
+    background: #b72a2a;
+    color: #ffffff;
+}
+
 @media (max-width: 767px) {
     .hat-actions-container > .d-flex.flex-wrap.justify-content-center {
         justify-content: flex-start !important;
@@ -2965,6 +3289,81 @@ body.dark-theme .fbe-inline-menu-item:focus-visible {
         trigger.title = "Выбрать формат файла";
     }
 
+
+    function showMetadataWarning(warnings, format) {
+        return new Promise(resolve => {
+            const overlay = document.createElement("div");
+            overlay.className = "fbe-warning-overlay";
+            overlay.setAttribute("role", "presentation");
+
+            const dialog = document.createElement("div");
+            dialog.className = "fbe-warning-dialog";
+            dialog.setAttribute("role", "alertdialog");
+            dialog.setAttribute("aria-modal", "true");
+            dialog.setAttribute("aria-labelledby", "fbe-warning-title");
+
+            const title = document.createElement("h2");
+            title.className = "fbe-warning-title";
+            title.id = "fbe-warning-title";
+            title.textContent = "ВНИМАНИЕ: часть данных не найдена";
+
+            const text = document.createElement("p");
+            text.className = "fbe-warning-text";
+            text.textContent = "Ficbook Exporter не смог распознать некоторые данные страницы:";
+
+            const list = document.createElement("ul");
+            list.className = "fbe-warning-list";
+            (warnings?.length ? warnings : ["неизвестная ошибка распознавания метаданных"]).forEach(message => {
+                const item = document.createElement("li");
+                item.textContent = message;
+                list.appendChild(item);
+            });
+
+            const note = document.createElement("p");
+            note.className = "fbe-warning-note";
+            note.textContent = `Можно продолжить и скачать ${format}, но отсутствующие данные будут пропущены или заменены безопасным значением.`;
+
+            const actions = document.createElement("div");
+            actions.className = "fbe-warning-actions";
+
+            const cancelButton = document.createElement("button");
+            cancelButton.type = "button";
+            cancelButton.className = "fbe-warning-button";
+            cancelButton.textContent = "Отмена";
+
+            const confirmButton = document.createElement("button");
+            confirmButton.type = "button";
+            confirmButton.className = "fbe-warning-button fbe-warning-button-confirm";
+            confirmButton.textContent = "Скачать всё равно";
+
+            actions.append(cancelButton, confirmButton);
+            dialog.append(title, text, list, note, actions);
+            overlay.appendChild(dialog);
+            document.body.appendChild(overlay);
+
+            const finish = accepted => {
+                document.removeEventListener("keydown", onWarningKeyDown, true);
+                overlay.remove();
+                resolve(accepted);
+            };
+
+            const onWarningKeyDown = event => {
+                if (event.key === "Escape") {
+                    event.preventDefault();
+                    finish(false);
+                }
+            };
+
+            cancelButton.addEventListener("click", () => finish(false), { once: true });
+            confirmButton.addEventListener("click", () => finish(true), { once: true });
+            overlay.addEventListener("click", event => {
+                if (event.target === overlay) finish(false);
+            });
+            document.addEventListener("keydown", onWarningKeyDown, true);
+            confirmButton.focus();
+        });
+    }
+
     function cancelActiveDownload() {
         if (!activeDownload || activeDownload.stopping) return;
         activeDownload.stopping = true;
@@ -2985,13 +3384,43 @@ body.dark-theme .fbe-inline-menu-item:focus-visible {
         trigger.title = `Остановить экспорт ${config.format}`;
 
         try {
-            await config.start(
-                (current, total) => {
-                    if (state.cancelled) throw new Error("cancelled");
-                    triggerLabel.textContent = `${config.format} ${current}/${total}`;
-                },
-                () => state.cancelled
-            );
+            let options = {};
+
+            while (!state.cancelled) {
+                try {
+                    await config.start(
+                        (current, total) => {
+                            if (state.cancelled) throw new Error("cancelled");
+                            triggerLabel.textContent = `${config.format} ${current}/${total}`;
+                        },
+                        () => state.cancelled,
+                        options
+                    );
+                    break;
+                } catch (error) {
+                    if (
+                        error?.name === "MetadataWarningError" &&
+                        !options.allowIncompleteMetadata
+                    ) {
+                        triggerLabel.textContent = "Нужно подтверждение";
+                        triggerChevron.textContent = "!";
+
+                        const accepted = await showMetadataWarning(
+                            error.warnings,
+                            config.format
+                        );
+
+                        if (!accepted || state.cancelled) break;
+
+                        options = { allowIncompleteMetadata: true };
+                        triggerLabel.textContent = `Подготовка ${config.format}`;
+                        triggerChevron.textContent = "×";
+                        continue;
+                    }
+
+                    throw error;
+                }
+            }
         } catch (error) {
             if (error?.message !== "cancelled") {
                 console.error(`Ошибка экспорта ${config.format}:`, error);
