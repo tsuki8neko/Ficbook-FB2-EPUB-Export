@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.1](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.9.0...v1.9.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* detect and export all participant roles ([a4e2ecc](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/a4e2ecc0c73326aed6dbee191adfa7e1ffa186d2))
+
 ## [1.9.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.8.2...v1.9.0) (2026-09-08)
 
 
