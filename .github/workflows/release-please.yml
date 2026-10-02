@@ -25,20 +25,6 @@ jobs:
           release-type: node
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Check PAT secret
-        env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "PAT_TOKEN IS EMPTY"
-            exit 1
-          fi
-
-          echo "PAT_TOKEN exists"
-          echo "Length: ${#GH_TOKEN}"
-          echo "Prefix: ${GH_TOKEN:0:4}..."
-          gh api user --jq .login
-
       - name: Trigger release-build workflow
         if: steps.release.outputs.release_created == 'true'
         env:
