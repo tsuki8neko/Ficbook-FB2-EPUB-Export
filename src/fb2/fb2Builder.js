@@ -31,7 +31,8 @@ function renderFb2Footnotes(chapter, globalIndexRef) {
 }
 
 export async function createFB2(onProgress = () => {}, isCancelled = () => false, options = {}) {
-    const book = await collectBook(onProgress, isCancelled, options);
+    const book = await collectBook(onProgress, isCancelled, { ...options, coverMode: "fb2" });
+    options.onStage?.("Создание FB2…");
     const { meta, cover, chapters } = book;
     const bookId = createBookId();
     const globalFootnoteIndex = { value: 1 };

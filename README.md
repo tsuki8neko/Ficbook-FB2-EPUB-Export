@@ -1,6 +1,6 @@
 # Ficbook Exporter — FB2, EPUB, PDF and TXT Downloader
 
-Userscript для скачивания произведений с [Ficbook](https://ficbook.net) и чтения их офлайн.
+Userscript для скачивания произведений с [Ficbook](https://ficbook.net) и чтения их оффлайн.
 
 ## Как выглядит кнопка
 

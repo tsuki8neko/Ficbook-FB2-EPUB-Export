@@ -415,7 +415,11 @@ body.dark-theme .fbe-warning-button-confirm {
         trigger.title = `Остановить экспорт ${config.format}`;
 
         try {
-            let options = {};
+            const onStage = stage => {
+                if (state.cancelled) throw new Error("cancelled");
+                triggerLabel.textContent = `${config.format}: ${stage}`;
+            };
+            let options = { onStage };
 
             while (!state.cancelled) {
                 try {
@@ -443,7 +447,7 @@ body.dark-theme .fbe-warning-button-confirm {
 
                         if (!accepted || state.cancelled) break;
 
-                        options = { allowIncompleteMetadata: true };
+                        options = { ...options, allowIncompleteMetadata: true };
                         triggerLabel.textContent = `Подготовка ${config.format}`;
                         triggerChevron.textContent = "×";
                         continue;

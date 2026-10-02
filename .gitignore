@@ -12,3 +12,5 @@ Description
 Description2
 Description3
 tools/
+src/vendor/jszip.esm.js
+src/vendor/jszip.min.js

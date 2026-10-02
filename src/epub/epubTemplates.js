@@ -57,8 +57,11 @@ export function buildTitlePage({ meta, cover }) {
         mainAuthor,
         coauthors,
         translators,
+        coTranslators,
         betas,
         gammas,
+        editors,
+        unclassifiedParticipants,
         direction,
         rating,
         size,
@@ -94,9 +97,12 @@ export function buildTitlePage({ meta, cover }) {
         ? `<p><strong>Направленность:</strong> ${escapeXml(direction)}</p>`
         : ""}
             ${peopleLine("Переводчик", translators)}
+            ${peopleLine("Сопереводчики", coTranslators)}
             ${peopleLine("Соавторы", coauthors)}
             ${peopleLine("Бета", betas)}
             ${peopleLine("Гамма", gammas)}
+            ${peopleLine("Редакторы", editors)}
+            ${peopleLine("Участники (роль не определена)", unclassifiedParticipants)}
             ${series
         ? `<p><strong>Серия:</strong> ${escapeXml(series.name)}${series.url
             ? ` (${escapeXml(series.url)})`

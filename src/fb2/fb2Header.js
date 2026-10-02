@@ -72,8 +72,11 @@ export function buildFb2Header({ meta, cover, bookId }) {
         originalAuthor,
         originalWork,
         translators,
+        coTranslators,
         betas,
         gammas,
+        editors,
+        unclassifiedParticipants,
         direction,
         rating,
         size,
@@ -121,9 +124,12 @@ export function buildFb2Header({ meta, cover, bookId }) {
         ? `<p><strong>Оригинал:</strong> ${escapeXml(originalWork.url)}</p>`
         : ""}
                 ${annotationPerson("Переводчик", translators)}
+                ${annotationPerson("Сопереводчики", coTranslators)}
                 ${annotationPerson("Соавторы", coauthors)}
                 ${annotationPerson("Бета", betas)}
                 ${annotationPerson("Гамма", gammas)}
+                ${annotationPerson("Редакторы", editors)}
+                ${annotationPerson("Участники (роль не определена)", unclassifiedParticipants)}
                 ${series
         ? `<p><strong>Серия:</strong> ${escapeXml(series.name)}${series.url
             ? ` (${escapeXml(series.url)})`

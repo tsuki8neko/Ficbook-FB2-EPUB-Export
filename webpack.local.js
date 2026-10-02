@@ -16,6 +16,7 @@ module.exports = {
     rules: [
       {
         test: /\.js$/,
+        exclude: /node_modules/,
         type: "javascript/esm",
       }
     ]

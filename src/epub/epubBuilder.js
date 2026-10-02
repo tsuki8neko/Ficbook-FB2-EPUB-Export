@@ -3,7 +3,8 @@ import { escapeXml } from "../utils/escapeXml.js";
 import { generateFileBaseName } from "../utils/generateFileName.js";
 import { downloadBlob } from "../utils/download.js";
 import { createBookId } from "../utils/id.js";
-import { loadExternalScript } from "../utils/loadLibrary.js";
+import "../utils/jszipSchedulerShim.js";
+import JSZip from "jszip";
 import { epubCss } from "./epubCss.js";
 import { buildTitlePage, buildChapterPage, buildTocXhtml } from "./epubTemplates.js";
 import { buildOpf } from "./epubOpf.js";
@@ -39,16 +40,48 @@ ${notes.map(note => `<aside id="${escapeXml(note.id)}" epub:type="footnote"><p><
 </div>`;
 }
 
-export async function createEPUB(onProgress = () => {}, isCancelled = () => false, options = {}) {
-    const JSZip = await loadExternalScript(
-        [
-            "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
-            "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"
-        ],
-        "JSZip"
-    );
+function cancelledError() {
+    return new Error("cancelled");
+}
 
-    const book = await collectBook(onProgress, isCancelled, options);
+function waitForZip(promise, isCancelled, timeoutMs = 60000) {
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        let cancelTimer = null;
+        let timeoutTimer = null;
+
+        const cleanup = () => {
+            if (cancelTimer !== null) clearInterval(cancelTimer);
+            if (timeoutTimer !== null) clearTimeout(timeoutTimer);
+        };
+
+        const finish = (fn, value) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            fn(value);
+        };
+
+        cancelTimer = setInterval(() => {
+            if (isCancelled()) finish(reject, cancelledError());
+        }, 100);
+
+        timeoutTimer = setTimeout(() => {
+            finish(reject, new Error(`JSZip не завершил упаковку EPUB за ${Math.round(timeoutMs / 1000)} секунд.`));
+        }, timeoutMs);
+
+        Promise.resolve(promise).then(
+            value => finish(resolve, value),
+            error => finish(reject, error)
+        );
+    });
+}
+
+export async function createEPUB(onProgress = () => {}, isCancelled = () => false, options = {}) {
+    const book = await collectBook(onProgress, isCancelled, { ...options, coverMode: "epub" });
+    if (isCancelled()) throw cancelledError();
+
+    options.onStage?.("Создание EPUB…");
     const { meta, cover } = book;
     const chapters = book.chapters.map(chapter => ({
         ...chapter,
@@ -72,13 +105,38 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
     zip.file("OEBPS/toc.ncx", buildNcx(meta.title, chapters, bookId));
     if (cover) zip.file(`OEBPS/images/${cover.fileName}`, cover.bytes, { binary: true });
 
-    const blob = await zip.generateAsync({
-        type: "blob",
-        mimeType: "application/epub+zip",
-        compression: "DEFLATE",
-        compressionOptions: { level: 6 }
-    });
+    console.info(
+        `[Ficbook Exporter] EPUB: к упаковке — ${chapters.length} глав, ` +
+        `${chapters.reduce((sum, chapter) => sum + (chapter.content?.length || 0), 0)} символов, ` +
+        `${cover ? "с обложкой" : "без обложки"}`
+    );
 
+    const started = performance.now();
+    let lastShownPercent = -1;
+    const generatePromise = zip.generateAsync(
+        {
+            type: "blob",
+            mimeType: "application/epub+zip",
+            compression: "DEFLATE",
+            compressionOptions: { level: 6 }
+        },
+        metaInfo => {
+            if (isCancelled()) return;
+            const percent = Math.max(0, Math.min(100, Math.floor(metaInfo?.percent || 0)));
+            if (percent !== lastShownPercent) {
+                lastShownPercent = percent;
+                options.onStage?.(`Сборка ${percent}%`);
+            }
+        }
+    );
+
+    const blob = await waitForZip(generatePromise, isCancelled, 60000);
+    if (isCancelled()) throw cancelledError();
+
+    console.info(
+        `[Ficbook Exporter] EPUB: упаковка ZIP — ${Math.round(performance.now() - started)} мс, ` +
+        `${blob.size} байт`
+    );
 
     const translator = meta.translators?.[0]?.name;
     const titlePart = translator ? `${meta.title}_[${translator}]` : meta.title;

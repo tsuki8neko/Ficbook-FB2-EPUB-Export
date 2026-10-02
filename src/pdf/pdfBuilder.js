@@ -204,6 +204,11 @@ function metaRows(meta) {
     );
 
     add(
+        "Сопереводчики",
+        peopleValue(meta.coTranslators)
+    );
+
+    add(
         "Бета",
         peopleValue(meta.betas)
     );
@@ -211,6 +216,16 @@ function metaRows(meta) {
     add(
         "Гамма",
         peopleValue(meta.gammas)
+    );
+
+    add(
+        "Редакторы",
+        peopleValue(meta.editors)
+    );
+
+    add(
+        "Участники (роль не определена)",
+        peopleValue(meta.unclassifiedParticipants)
     );
 
     add(
@@ -466,18 +481,36 @@ export async function createPDF(
     isCancelled = () => false,
     options = {}
 ) {
-    const pdfMake = await loadExternalScript(
-        [
-            "https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/pdfmake.min.js",
-            "https://unpkg.com/pdfmake@0.2.20/build/pdfmake.min.js"
-        ],
-        "pdfMake"
+    let modulesReady = false;
+    const modulesPromise = Promise.all([
+        loadExternalScript(
+            [
+                "https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/pdfmake.min.js",
+                "https://unpkg.com/pdfmake@0.2.20/build/pdfmake.min.js"
+            ],
+            "pdfMake"
+        ),
+        loadExternalScript([
+            "https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/vfs_fonts.js",
+            "https://unpkg.com/pdfmake@0.2.20/build/vfs_fonts.js"
+        ])
+    ]).then(
+        value => ({ value, error: null }),
+        error => ({ value: null, error })
+    ).finally(() => {
+        modulesReady = true;
+    });
+
+    const book = await collectBook(
+        onProgress,
+        isCancelled,
+        { ...options, coverMode: "pdf" }
     );
 
-    const pdfFonts = await loadExternalScript([
-        "https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/vfs_fonts.js",
-        "https://unpkg.com/pdfmake@0.2.20/build/vfs_fonts.js"
-    ]);
+    if (!modulesReady) options.onStage?.("Модуль PDF…");
+    const modulesResult = await modulesPromise;
+    if (modulesResult.error) throw modulesResult.error;
+    const [pdfMake, pdfFonts] = modulesResult.value;
 
     if (
         pdfFonts &&
@@ -489,12 +522,7 @@ export async function createPDF(
         );
     }
 
-    const book = await collectBook(
-        onProgress,
-        isCancelled,
-        options
-    );
-
+    options.onStage?.("Создание PDF…");
     const { meta } = book;
     const definition = buildPdfDefinition(book);
     const blob = await getPdfBlob(

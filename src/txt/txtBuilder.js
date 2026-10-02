@@ -101,6 +101,12 @@ function buildHeader(meta) {
 
     addLine(
         lines,
+        "Сопереводчики",
+        meta.coTranslators?.map(author => author.name)
+    );
+
+    addLine(
+        lines,
         "Бета",
         meta.betas?.map(author => author.name)
     );
@@ -109,6 +115,18 @@ function buildHeader(meta) {
         lines,
         "Гамма",
         meta.gammas?.map(author => author.name)
+    );
+
+    addLine(
+        lines,
+        "Редакторы",
+        meta.editors?.map(author => author.name)
+    );
+
+    addLine(
+        lines,
+        "Участники (роль не определена)",
+        meta.unclassifiedParticipants?.map(author => author.name)
     );
 
     addLine(
@@ -158,8 +176,9 @@ export async function createTXT(
     const { meta, chapters } = await collectBook(
         onProgress,
         isCancelled,
-        options
+        { ...options, coverMode: "none" }
     );
+    options.onStage?.("Создание TXT…");
 
     const parts = [
         buildHeader(meta),

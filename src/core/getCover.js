@@ -2,8 +2,35 @@ const REAL_COVER_SELECTOR =
     ".fanfic-hat-cover picture img, " +
     ".fanfic-hat-cover img";
 
+/*
+ * Кэшируем уже скачанную и нормализованную обложку на время жизни страницы.
+ * Это особенно заметно, если пользователь подряд экспортирует одну работу
+ * в несколько форматов: повторно CDN и Canvas уже не трогаем.
+ */
+const normalizedCoverCache = new Map();
+
+function nowMs() {
+    return typeof performance !== "undefined" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
+}
+
+function logTiming(label, startedAt) {
+    const elapsed = Math.max(0, nowMs() - startedAt);
+    console.info(`[Ficbook Exporter] Обложка: ${label} — ${elapsed.toFixed(0)} мс`);
+}
+
 function candidateFromNode(node) {
     if (!node) return "";
+
+    /*
+     * currentSrc — фактический ресурс, который браузер уже выбрал и
+     * загрузил из <picture>/<source>. Используем его первым, чтобы
+     * cache-first запрос совпадал с URL уже отображаемой обложки.
+     */
+    if (node.currentSrc) {
+        return node.currentSrc;
+    }
 
     const srcset =
         node.getAttribute("srcset") ||
@@ -69,14 +96,6 @@ function isRealFicbookCover(value) {
     try {
         const url = new URL(value);
 
-        /*
-         * Настоящие обложки произведений Ficbook хранятся
-         * в каталоге /fanfic-covers/.
-         *
-         * Благодаря этой проверке логотипы, аватары,
-         * рекламные картинки и изображения-заглушки
-         * не попадут в книгу.
-         */
         if (!url.pathname.includes("/fanfic-covers/")) {
             return false;
         }
@@ -96,11 +115,6 @@ function isRealFicbookCover(value) {
 }
 
 export function findCoverUrl(doc = document) {
-    /*
-     * Не используем og:image и другие резервные картинки.
-     * Если на странице нет настоящего блока обложки,
-     * считаем, что обложки у произведения нет.
-     */
     const coverRoot = doc.querySelector(".fanfic-hat-cover");
     if (!coverRoot) return "";
 
@@ -163,10 +177,6 @@ function gmRequestBlob(url) {
                         "content-type"
                     ) || "application/octet-stream";
 
-                /*
-                 * Дополнительно проверяем, что сервер действительно
-                 * вернул изображение, а не HTML-страницу ошибки.
-                 */
                 if (!contentType.toLowerCase().startsWith("image/")) {
                     reject(
                         new Error(
@@ -197,39 +207,19 @@ function gmRequestBlob(url) {
 
 async function fetchBlob(url) {
     /*
-     * Сначала используем GM-запрос, поскольку он
-     * не зависит от CORS страницы Ficbook.
+     * assets.teinon.net не разрешает CORS для браузерного fetch со страницы
+     * ficbook.net. Поэтому не делаем заведомо неуспешную cache-first попытку:
+     * сразу используем GM_xmlhttpRequest, которому CORS не мешает.
+     *
+     * Кэш нормализованной обложки текущей страницы остаётся выше по цепочке
+     * в normalizedCoverCache, поэтому повторный экспорт той же работы всё равно
+     * использует уже готовую обложку без сетевого запроса.
      */
-    try {
-        return await gmRequestBlob(url);
-    } catch (gmError) {
-        try {
-            const response = await fetch(url, {
-                credentials: "omit",
-                mode: "cors"
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const contentType =
-                response.headers.get("content-type") || "";
-
-            if (!contentType.toLowerCase().startsWith("image/")) {
-                throw new Error(
-                    `Получен неподходящий тип файла: ${contentType || "неизвестно"}`
-                );
-            }
-
-            return await response.blob();
-        } catch (fetchError) {
-            throw new Error(
-                `Не удалось скачать обложку: ` +
-                `${gmError.message}; ${fetchError.message}`
-            );
-        }
-    }
+    const blob = await gmRequestBlob(url);
+    console.info(
+        `[Ficbook Exporter] Обложка: GM-запрос — ${blob.size} байт`
+    );
+    return blob;
 }
 
 function loadImage(blob) {
@@ -276,8 +266,11 @@ function canvasToBlob(canvas, type, quality) {
     });
 }
 
-async function normalizeToJpeg(blob) {
+async function normalizeToJpeg(blob, onStage) {
+    onStage("декодирование");
+    const decodeStarted = nowMs();
     const image = await loadImage(blob);
+    logTiming("декодирование", decodeStarted);
 
     if (!image.naturalWidth || !image.naturalHeight) {
         throw new Error("Изображение имеет нулевой размер");
@@ -319,67 +312,120 @@ async function normalizeToJpeg(blob) {
     context.fillRect(0, 0, width, height);
     context.drawImage(image, 0, 0, width, height);
 
+    onStage("JPEG");
+    const jpegStarted = nowMs();
+    const jpegBlob = await canvasToBlob(
+        canvas,
+        "image/jpeg",
+        0.9
+    );
+    logTiming("JPEG", jpegStarted);
+
     return {
-        blob: await canvasToBlob(
-            canvas,
-            "image/jpeg",
-            0.9
-        ),
+        blob: jpegBlob,
         width,
         height
     };
 }
 
-function bytesToBase64(bytes) {
-    let binary = "";
-    const chunkSize = 0x8000;
-
-    for (
-        let index = 0;
-        index < bytes.length;
-        index += chunkSize
-    ) {
-        binary += String.fromCharCode(
-            ...bytes.subarray(
-                index,
-                index + chunkSize
-            )
-        );
-    }
-
-    return btoa(binary);
+function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error || new Error("Не удалось прочитать обложку"));
+        reader.readAsDataURL(blob);
+    });
 }
 
-export async function getCover(doc = document) {
-    const sourceUrl = findCoverUrl(doc);
+async function getNormalizedCover(sourceUrl, onStage) {
+    if (normalizedCoverCache.has(sourceUrl)) {
+        onStage("кэш");
+        console.info("[Ficbook Exporter] Обложка: использован кэш текущей страницы");
+        return normalizedCoverCache.get(sourceUrl);
+    }
 
-    /*
-     * Если настоящей обложки нет, возвращаем null.
-     * Экспортёры должны создать книгу без обложки.
-     */
-    if (!sourceUrl) return null;
+    const promise = (async () => {
+        onStage("загрузка");
+        const downloadStarted = nowMs();
+        const originalBlob = await fetchBlob(sourceUrl);
+        logTiming("загрузка", downloadStarted);
+
+        const normalizeStarted = nowMs();
+        const normalized = await normalizeToJpeg(originalBlob, onStage);
+        logTiming("обработка всего изображения", normalizeStarted);
+
+        return normalized;
+    })();
+
+    normalizedCoverCache.set(sourceUrl, promise);
 
     try {
-        const originalBlob = await fetchBlob(sourceUrl);
-        const normalized = await normalizeToJpeg(originalBlob);
+        return await promise;
+    } catch (error) {
+        normalizedCoverCache.delete(sourceUrl);
+        throw error;
+    }
+}
 
-        const bytes = new Uint8Array(
-            await normalized.blob.arrayBuffer()
-        );
+export async function getCover(doc = document, options = {}) {
+    const mode = options.mode || "full";
+    const onStage = typeof options.onStage === "function" ? options.onStage : () => {};
 
-        const base64 = bytesToBase64(bytes);
+    if (mode === "none") return null;
 
-        return {
+    const sourceUrl = findCoverUrl(doc);
+    if (!sourceUrl) return null;
+
+    const totalStarted = nowMs();
+
+    try {
+        const normalized = await getNormalizedCover(sourceUrl, onStage);
+        const common = {
             sourceUrl,
             blob: normalized.blob,
-            bytes,
-            base64,
-            dataUrl: `data:image/jpeg;base64,${base64}`,
             mediaType: "image/jpeg",
             fileName: "cover.jpg",
             width: normalized.width,
             height: normalized.height
         };
+
+        if (mode === "epub") {
+            onStage("байты EPUB");
+            const started = nowMs();
+            const bytes = new Uint8Array(await normalized.blob.arrayBuffer());
+            logTiming("подготовка EPUB", started);
+            logTiming("всего", totalStarted);
+            return { ...common, bytes };
+        }
+
+        if (mode === "fb2") {
+            onStage("Base64 FB2");
+            const started = nowMs();
+            const dataUrl = await blobToDataUrl(normalized.blob);
+            const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+            logTiming("подготовка FB2", started);
+            logTiming("всего", totalStarted);
+            return { ...common, base64 };
+        }
+
+        if (mode === "pdf") {
+            onStage("данные PDF");
+            const started = nowMs();
+            const dataUrl = await blobToDataUrl(normalized.blob);
+            logTiming("подготовка PDF", started);
+            logTiming("всего", totalStarted);
+            return { ...common, dataUrl };
+        }
+
+        /* Режим совместимости для сторонних вызовов getCover(). */
+        onStage("полная подготовка");
+        const started = nowMs();
+        const bytes = new Uint8Array(await normalized.blob.arrayBuffer());
+        const dataUrl = await blobToDataUrl(normalized.blob);
+        const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+        logTiming("полная подготовка", started);
+        logTiming("всего", totalStarted);
+        return { ...common, bytes, base64, dataUrl };
     } catch (error) {
         console.warn(
             "Обложка найдена, но не добавлена:",

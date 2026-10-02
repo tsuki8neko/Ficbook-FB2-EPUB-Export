@@ -5,6 +5,8 @@ import { getChapter } from "./getChapter.js";
 import { getCover } from "./getCover.js";
 import { delay } from "../utils/delay.js";
 
+const workDocumentCache = new Map();
+
 function currentWorkUrl() {
     const url = new URL(location.href);
     const parts = url.pathname.split("/").filter(Boolean);
@@ -17,14 +19,25 @@ async function loadWorkDocument(workUrl) {
     const work = new URL(workUrl);
     if (current.pathname.replace(/\/$/, "") === work.pathname.replace(/\/$/, "")) return document;
 
-    const response = await fetch(workUrl, { credentials: "same-origin" });
-    if (!response.ok) throw new Error(`Не удалось загрузить страницу произведения: HTTP ${response.status}`);
-    const html = await response.text();
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    if (!doc.querySelector(".fanfic-hat-body, h1.heading")) {
-        throw new Error("Страница произведения загружена, но её структура не распознана.");
+    if (!workDocumentCache.has(workUrl)) {
+        workDocumentCache.set(workUrl, (async () => {
+            const response = await fetch(workUrl, { credentials: "same-origin" });
+            if (!response.ok) throw new Error(`Не удалось загрузить страницу произведения: HTTP ${response.status}`);
+            const html = await response.text();
+            const doc = new DOMParser().parseFromString(html, "text/html");
+            if (!doc.querySelector(".fanfic-hat-body, h1.heading")) {
+                throw new Error("Страница произведения загружена, но её структура не распознана.");
+            }
+            return doc;
+        })());
     }
-    return doc;
+
+    try {
+        return await workDocumentCache.get(workUrl);
+    } catch (error) {
+        workDocumentCache.delete(workUrl);
+        throw error;
+    }
 }
 
 function isRole(author, role) {
@@ -123,6 +136,10 @@ function metadataWarnings(doc, meta) {
     if (!meta.size) warnings.push("не найден размер произведения");
     if (!meta.description) warnings.push("не найдено описание");
 
+    for (const person of meta.unclassifiedParticipants || []) {
+        warnings.push(`не удалось определить роль участника: ${person.name}`);
+    }
+
     return warnings;
 }
 
@@ -137,15 +154,31 @@ function createMetadataWarningError(warnings) {
 }
 
 export async function collectBook(onProgress = () => {}, isCancelled = () => false, options = {}) {
+    const onStage = typeof options.onStage === "function" ? options.onStage : () => {};
     const workUrl = currentWorkUrl();
-    const doc = await loadWorkDocument(workUrl);
 
+    onStage("Страница произведения…");
+    const doc = await loadWorkDocument(workUrl);
+    if (isCancelled()) throw new Error("cancelled");
+
+    onStage("Метаданные…");
     const title = getTitle(doc);
     const authors = getAuthors(doc);
     const originalAuthor = getOriginalAuthor(doc);
     const originalWork = getOriginalWork(doc);
     const translators = authors.filter(author => isRole(author, "переводчик"));
-    const detectedMainAuthor = authors.find(author => isRole(author, "автор")) || originalAuthor || translators[0] || null;
+    const coTranslators = authors.filter(author => isRole(author, "сопереводчик"));
+    const unclassifiedParticipants = authors.filter(author => isRole(author, "неизвестно"));
+    const singleUnclassified = unclassifiedParticipants.length === 1
+        ? unclassifiedParticipants[0]
+        : null;
+    const detectedMainAuthor =
+        authors.find(author => isRole(author, "автор")) ||
+        originalAuthor ||
+        translators[0] ||
+        coTranslators[0] ||
+        singleUnclassified ||
+        null;
     const mainAuthor = detectedMainAuthor || {
         name: "Неизвестный автор",
         url: "",
@@ -159,8 +192,11 @@ export async function collectBook(onProgress = () => {}, isCancelled = () => fal
         mainAuthor,
         coauthors: authors.filter(author => isRole(author, "соавтор")),
         translators,
+        coTranslators,
         betas: authors.filter(author => isRole(author, "бета")),
         gammas: authors.filter(author => isRole(author, "гамма")),
+        editors: authors.filter(author => isRole(author, "редактор")),
+        unclassifiedParticipants,
         originalAuthor,
         originalWork,
         ...getExtraData(doc),
@@ -176,11 +212,39 @@ export async function collectBook(onProgress = () => {}, isCancelled = () => fal
         throw createMetadataWarningError(warnings);
     }
 
-    const cover = await getCover(doc);
     if (isCancelled()) throw new Error("cancelled");
     const chapterUrls = extractChapterUrls(doc, workUrl);
+
+    // Обложка и главы идут параллельно. При этом для каждого формата
+    // готовим только реально нужное представление картинки. TXT вообще
+    // не запускает загрузку обложки.
+    const coverMode = options.coverMode || "full";
+    let coverReady = coverMode === "none";
+    let chaptersReady = false;
+    let coverStage = "загрузка";
+
+    const coverPromise = coverMode === "none"
+        ? Promise.resolve(null)
+        : getCover(doc, {
+            mode: coverMode,
+            onStage: stage => {
+                coverStage = stage;
+                if (chaptersReady && !coverReady) {
+                    onStage(`Обложка: ${stage}…`);
+                }
+            }
+        }).finally(() => {
+            coverReady = true;
+        });
+
+    onStage("Подготовка списка глав…");
     const chapters = await loadChapters(chapterUrls, onProgress, isCancelled);
+    chaptersReady = true;
 
     if (!chapters.length) throw new Error("Не удалось загрузить главы произведения.");
+    if (!coverReady) onStage(`Обложка: ${coverStage}…`);
+    const cover = await coverPromise;
+    if (isCancelled()) throw new Error("cancelled");
+
     return { meta, cover, chapters };
 }

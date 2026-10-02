@@ -5,39 +5,284 @@ import { extractFootnotes } from "./getFootnotes.js";
 const MAX_ATTEMPTS = 5;
 const BLOCK_TAGS = new Set(["p", "div", "section", "article", "blockquote", "li", "h1", "h2", "h3", "h4"]);
 
-function extractJsonObjectAfterMarker(source, marker) {
+function extractAssignedLiteralAfterMarker(source, marker) {
     const markerIndex = source.indexOf(marker);
     if (markerIndex < 0) return null;
 
-    const start = source.indexOf("{", markerIndex + marker.length);
-    if (start < 0) return null;
+    const equalsIndex = source.indexOf("=", markerIndex + marker.length);
+    if (equalsIndex < 0) return null;
 
-    let depth = 0;
-    let inString = false;
+    let start = equalsIndex + 1;
+    while (start < source.length && /\s/.test(source[start])) start++;
+    if (start >= source.length) return null;
+
+    const opening = source[start];
+    if (opening !== "{" && opening !== "[") {
+        // На случай null/undefined или другого простого литерала.
+        const end = source.indexOf(";", start);
+        return source.slice(start, end < 0 ? source.length : end).trim() || null;
+    }
+
+    const pairs = { "{": "}", "[": "]" };
+    const stack = [];
+    let quote = null;
     let escaped = false;
+    let lineComment = false;
+    let blockComment = false;
 
     for (let i = start; i < source.length; i++) {
         const char = source[i];
+        const next = source[i + 1];
 
-        if (inString) {
+        if (lineComment) {
+            if (char === "\n") lineComment = false;
+            continue;
+        }
+        if (blockComment) {
+            if (char === "*" && next === "/") {
+                blockComment = false;
+                i++;
+            }
+            continue;
+        }
+        if (quote) {
             if (escaped) escaped = false;
             else if (char === "\\") escaped = true;
-            else if (char === '"') inString = false;
+            else if (char === quote) quote = null;
             continue;
         }
 
-        if (char === '"') {
-            inString = true;
+        if (char === "/" && next === "/") {
+            lineComment = true;
+            i++;
             continue;
         }
-        if (char === "{") depth++;
-        if (char === "}") {
-            depth--;
-            if (depth === 0) return source.slice(start, i + 1);
+        if (char === "/" && next === "*") {
+            blockComment = true;
+            i++;
+            continue;
+        }
+        if (char === '"' || char === "'" || char === "`") {
+            quote = char;
+            continue;
+        }
+
+        if (char === "{" || char === "[") {
+            stack.push(pairs[char]);
+            continue;
+        }
+        if (char === "}" || char === "]") {
+            if (!stack.length || stack[stack.length - 1] !== char) return null;
+            stack.pop();
+            if (!stack.length) return source.slice(start, i + 1);
         }
     }
 
     return null;
+}
+
+/**
+ * Безопасный разбор простого JavaScript object literal без eval/new Function.
+ * Ficbook стал отдавать textFootnotes с некавыченными ключами, поэтому
+ * строгий JSON.parse больше не всегда подходит.
+ */
+function parseObjectLiteral(source) {
+    let index = 0;
+
+    function fail(message) {
+        throw new SyntaxError(`${message} at position ${index}`);
+    }
+
+    function skipSpace() {
+        while (index < source.length) {
+            if (/\s/.test(source[index])) {
+                index++;
+                continue;
+            }
+            if (source[index] === "/" && source[index + 1] === "/") {
+                index += 2;
+                while (index < source.length && source[index] !== "\n") index++;
+                continue;
+            }
+            if (source[index] === "/" && source[index + 1] === "*") {
+                index += 2;
+                const end = source.indexOf("*/", index);
+                if (end < 0) fail("Unterminated comment");
+                index = end + 2;
+                continue;
+            }
+            break;
+        }
+    }
+
+    function parseString() {
+        const quote = source[index++];
+        let value = "";
+        while (index < source.length) {
+            const char = source[index++];
+            if (char === quote) return value;
+            if (char !== "\\") {
+                value += char;
+                continue;
+            }
+
+            if (index >= source.length) fail("Unterminated escape");
+            const escape = source[index++];
+            const simple = {
+                n: "\n", r: "\r", t: "\t", b: "\b", f: "\f", v: "\v",
+                "0": "\0", "\\": "\\", "'": "'", '"': '"', "`": "`"
+            };
+            if (Object.prototype.hasOwnProperty.call(simple, escape)) {
+                value += simple[escape];
+            } else if (escape === "x") {
+                const hex = source.slice(index, index + 2);
+                if (!/^[0-9a-f]{2}$/i.test(hex)) fail("Invalid hex escape");
+                value += String.fromCharCode(parseInt(hex, 16));
+                index += 2;
+            } else if (escape === "u") {
+                if (source[index] === "{") {
+                    const close = source.indexOf("}", index + 1);
+                    if (close < 0) fail("Invalid Unicode escape");
+                    const hex = source.slice(index + 1, close);
+                    if (!/^[0-9a-f]+$/i.test(hex)) fail("Invalid Unicode escape");
+                    value += String.fromCodePoint(parseInt(hex, 16));
+                    index = close + 1;
+                } else {
+                    const hex = source.slice(index, index + 4);
+                    if (!/^[0-9a-f]{4}$/i.test(hex)) fail("Invalid Unicode escape");
+                    value += String.fromCharCode(parseInt(hex, 16));
+                    index += 4;
+                }
+            } else if (escape === "\n") {
+                // JavaScript line continuation.
+            } else if (escape === "\r") {
+                if (source[index] === "\n") index++;
+            } else {
+                // JS допускает экранирование обычного символа: \<char> -> <char>.
+                value += escape;
+            }
+        }
+        fail("Unterminated string");
+    }
+
+    function parseNumber() {
+        const match = source.slice(index).match(/^-?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/);
+        if (!match) fail("Invalid number");
+        index += match[0].length;
+        return Number(match[0]);
+    }
+
+    function parseIdentifier() {
+        const match = source.slice(index).match(/^[A-Za-z_$][\w$-]*/);
+        if (!match) fail("Expected identifier");
+        index += match[0].length;
+        return match[0];
+    }
+
+    function parseArray() {
+        const value = [];
+        index++;
+        skipSpace();
+        if (source[index] === "]") {
+            index++;
+            return value;
+        }
+        while (index < source.length) {
+            value.push(parseValue());
+            skipSpace();
+            if (source[index] === ",") {
+                index++;
+                skipSpace();
+                if (source[index] === "]") {
+                    index++;
+                    return value;
+                }
+                continue;
+            }
+            if (source[index] === "]") {
+                index++;
+                return value;
+            }
+            fail("Expected ',' or ']'");
+        }
+        fail("Unterminated array");
+    }
+
+    function parseObject() {
+        const value = {};
+        index++;
+        skipSpace();
+        if (source[index] === "}") {
+            index++;
+            return value;
+        }
+
+        while (index < source.length) {
+            skipSpace();
+            let key;
+            if (source[index] === '"' || source[index] === "'" || source[index] === "`") {
+                key = parseString();
+            } else {
+                const numberKey = source.slice(index).match(/^-?\d+(?:\.\d+)?/);
+                if (numberKey) {
+                    key = numberKey[0];
+                    index += numberKey[0].length;
+                } else {
+                    key = parseIdentifier();
+                }
+            }
+
+            skipSpace();
+            if (source[index] !== ":") fail("Expected ':'");
+            index++;
+            value[String(key)] = parseValue();
+            skipSpace();
+
+            if (source[index] === ",") {
+                index++;
+                skipSpace();
+                if (source[index] === "}") {
+                    index++;
+                    return value;
+                }
+                continue;
+            }
+            if (source[index] === "}") {
+                index++;
+                return value;
+            }
+            fail("Expected ',' or '}'");
+        }
+        fail("Unterminated object");
+    }
+
+    function parseValue() {
+        skipSpace();
+        const char = source[index];
+        if (char === "{") return parseObject();
+        if (char === "[") return parseArray();
+        if (char === '"' || char === "'" || char === "`") return parseString();
+        if (char === "-" || /\d/.test(char || "")) return parseNumber();
+
+        const identifier = parseIdentifier();
+        if (identifier === "true") return true;
+        if (identifier === "false") return false;
+        if (identifier === "null" || identifier === "undefined") return null;
+        return identifier;
+    }
+
+    const result = parseValue();
+    skipSpace();
+    if (index !== source.length) fail("Unexpected trailing input");
+    return result;
+}
+
+function parseFootnotesMap(source) {
+    try {
+        return JSON.parse(source);
+    } catch (_) {
+        return parseObjectLiteral(source);
+    }
 }
 
 function serializeText(node) {
@@ -163,10 +408,10 @@ export async function getChapter(url, options = {}, attempt = 1) {
     `.replace(/\s+/g, " ")).forEach(element => element.remove());
 
     let notesMap = {};
-    const notesJson = extractJsonObjectAfterMarker(html, "textFootnotes");
-    if (notesJson) {
+    const notesLiteral = extractAssignedLiteralAfterMarker(html, "textFootnotes");
+    if (notesLiteral) {
         try {
-            notesMap = JSON.parse(notesJson);
+            notesMap = parseFootnotesMap(notesLiteral);
         } catch (error) {
             console.warn("Не удалось разобрать сноски главы:", url, error);
         }
