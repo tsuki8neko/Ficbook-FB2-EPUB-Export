@@ -25,8 +25,12 @@ jobs:
           release-type: node
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Trigger release-build workflow
+      - name: Check PAT and trigger release-build
         if: steps.release.outputs.release_created == 'true'
-        run: gh workflow run release-build.yml --repo "$GITHUB_REPOSITORY"
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          echo "Checking PAT..."
+          gh api user
+          echo "PAT OK"
+          gh workflow run release-build.yml --repo "$GITHUB_REPOSITORY" --ref master
