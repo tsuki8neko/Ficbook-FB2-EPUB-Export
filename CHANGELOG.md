@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.1](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.10.0...v1.10.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* use unfiltered collection count for full downloads ([e5375bc](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/e5375bcbc885f54ba6b5786d04ae0389662f6307))
+
 ## [1.10.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.9.1...v1.10.0) (2026-10-03)
 
 
