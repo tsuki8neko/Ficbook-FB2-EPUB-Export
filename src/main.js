@@ -3,6 +3,7 @@ import { createEPUB } from "./epub/epubBuilder.js";
 import { createTXT } from "./txt/txtBuilder.js";
 import { createPDF } from "./pdf/pdfBuilder.js";
 import { createButtons } from "./ui/buttons.js";
+import { createBatchExportButtons } from "./ui/batchExport.js";
 
 const exporters = { fb2: createFB2, epub: createEPUB, txt: createTXT, pdf: createPDF };
 let observer = null;
@@ -10,8 +11,22 @@ let insertionScheduled = false;
 
 function insertButtons() {
     insertionScheduled = false;
-    if (!document.body || document.querySelector("#ficbook-export-buttons .fbe-inline-trigger")) return;
-    createButtons(exporters);
+    if (!document.body) return;
+
+    const path = location.pathname;
+
+    if (/^\/readfic\//.test(path)) {
+        if (!document.querySelector("#ficbook-export-buttons .fbe-inline-trigger")) {
+            createButtons(exporters);
+        }
+        return;
+    }
+
+    if (/^\/authors\//.test(path) || /^\/collections\//.test(path) || /^\/series\//.test(path)) {
+        if (!document.querySelector("#ficbook-batch-export")) {
+            createBatchExportButtons(exporters);
+        }
+    }
 }
 
 function scheduleInsert() {

@@ -78,5 +78,11 @@ ${allNotes.map(note => `
     const translator = meta.translators?.[0]?.name;
     const titlePart = translator ? `${meta.title}_[${translator}]` : meta.title;
     const fileName = `${generateFileBaseName(meta.mainAuthor?.name || "UnknownAuthor", titlePart)}.fb2`;
-    downloadBlob(new Blob([fullFb2], { type: "application/x-fictionbook+xml;charset=utf-8" }), fileName);
+    const blob = new Blob([fullFb2], { type: "application/x-fictionbook+xml;charset=utf-8" });
+    const artifact = { blob, fileName, sourceUrl: meta.sourceUrl, format: "FB2" };
+
+    if (options.returnFile) return artifact;
+
+    downloadBlob(blob, fileName);
+    return artifact;
 }

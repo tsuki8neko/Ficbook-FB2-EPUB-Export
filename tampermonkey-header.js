@@ -9,6 +9,9 @@
 // @description:ru  Экспорт произведений Фикбука в FB2, EPUB, TXT и PDF со встроенными обложками
 // @author          tsuki8neko
 // @match           https://ficbook.net/readfic/*
+// @match           https://ficbook.net/authors/*
+// @match           https://ficbook.net/collections/*
+// @match           https://ficbook.net/series/*
 // @grant           GM_xmlhttpRequest
 // @connect         ficbook.net
 // @connect         *.ficbook.net

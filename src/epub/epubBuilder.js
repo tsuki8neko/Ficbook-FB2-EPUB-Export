@@ -141,5 +141,10 @@ export async function createEPUB(onProgress = () => {}, isCancelled = () => fals
     const translator = meta.translators?.[0]?.name;
     const titlePart = translator ? `${meta.title}_[${translator}]` : meta.title;
     const fileName = `${generateFileBaseName(meta.mainAuthor?.name || "UnknownAuthor", titlePart)}.epub`;
+    const artifact = { blob, fileName, sourceUrl: meta.sourceUrl, format: "EPUB" };
+
+    if (options.returnFile) return artifact;
+
     downloadBlob(blob, fileName);
+    return artifact;
 }

@@ -71,6 +71,7 @@ function buildHeader(meta) {
             : ""
     );
 
+    addLine(lines, "Вселенная", meta.universe);
     addLine(lines, "Фэндом", meta.fandom);
 
     addLine(

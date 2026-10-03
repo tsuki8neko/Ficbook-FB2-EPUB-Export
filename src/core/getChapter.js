@@ -1,6 +1,7 @@
 import { delay } from "../utils/delay.js";
 import { escapeXml } from "../utils/escapeXml.js";
 import { extractFootnotes } from "./getFootnotes.js";
+import { fetchTextWithRetries } from "../utils/network.js";
 
 const MAX_ATTEMPTS = 5;
 const BLOCK_TAGS = new Set(["p", "div", "section", "article", "blockquote", "li", "h1", "h2", "h3", "h4"]);
@@ -334,90 +335,132 @@ function buildChapterText(contentNode) {
 
 export async function getChapter(url, options = {}, attempt = 1) {
     const isCancelled = options.isCancelled || (() => false);
+    const onNetworkState = typeof options.onNetworkState === "function"
+        ? options.onNetworkState
+        : () => {};
+
     if (isCancelled()) throw new Error("cancelled");
 
+    // Сохраняем защитную задержку перед каждым запросом Ficbook.
     await delay(350 + Math.random() * 250);
     if (isCancelled()) throw new Error("cancelled");
 
-    let response;
     try {
-        response = await fetch(url, { credentials: "same-origin" });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    } catch (error) {
-        if (attempt < MAX_ATTEMPTS && !isCancelled()) {
-            await delay(900 * attempt + Math.random() * 400);
-            return getChapter(url, options, attempt + 1);
+        const { text: html } = await fetchTextWithRetries(url, {
+            credentials: "same-origin",
+            isCancelled,
+            onState: onNetworkState,
+            // Повтор всей главы ниже уже делает до MAX_ATTEMPTS попыток.
+            // Здесь нужна прежде всего корректная обработка offline/timeout.
+            maxAttempts: 1,
+            requestTimeoutMs: 45000
+        });
+
+        const looksEmpty =
+            !html ||
+            html.length < 500 ||
+            /cf-browser-verification|Cloudflare|Too Many Requests|<title>\s*(?:429|500|502|503|504)/i.test(html);
+
+        // Если соединение оборвалось посреди ответа, response.text() обычно
+        // отклоняется. Дополнительно проверяем закрывающий тег, чтобы не принять
+        // редкий усечённый HTTP 200 за полноценную страницу главы.
+        const looksTruncated = !/<\/body\s*>/i.test(html) && !/<\/html\s*>/i.test(html);
+
+        if (looksEmpty || looksTruncated) {
+            const error = new Error(
+                `Не удалось загрузить ${url}: ${looksTruncated ? "ответ сервера оборвался" : "пустой или служебный HTML"}`
+            );
+            error.retryable = true;
+            throw error;
         }
-        throw error;
-    }
 
-    const html = await response.text();
-    const looksEmpty =
-        !html ||
-        html.length < 500 ||
-        /cf-browser-verification|Cloudflare|Too Many Requests|<title>429|<title>502/i.test(html);
+        if (isCancelled()) throw new Error("cancelled");
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        const title =
+            doc.querySelector(".title-area h2, .part-title h3, .part-title h2, .part-title")?.textContent?.trim() ||
+            "Глава";
 
-    if (looksEmpty) {
-        if (attempt < MAX_ATTEMPTS && !isCancelled()) {
-            await delay(1100 * attempt + Math.random() * 500);
-            return getChapter(url, options, attempt + 1);
+        let contentNode =
+            doc.querySelector(".part_text") ||
+            doc.querySelector("#content .part_text") ||
+            doc.querySelector("[itemprop='articleBody']");
+
+        // Резерв для изменения разметки Ficbook. Он используется только на
+        // полноценной HTML-странице и затем дополнительно проверяется на текст.
+        if (!contentNode) {
+            let best = null;
+            let bestScore = 0;
+            for (const element of doc.querySelectorAll("div, article, section")) {
+                const text = (element.textContent || "").replace(/\s+/g, " ").trim();
+                if (text.length < 200) continue;
+                const className = String(element.className || "");
+                if (/header|footer|menu|nav|comment|promo|settings|captcha|login|auth/i.test(className)) continue;
+                if (text.length > bestScore) {
+                    best = element;
+                    bestScore = text.length;
+                }
+            }
+            contentNode = best;
         }
-        throw new Error(`Не удалось загрузить ${url}: пустой или служебный HTML`);
-    }
 
-    if (isCancelled()) throw new Error("cancelled");
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    const title =
-        doc.querySelector(".title-area h2, .part-title h3, .part-title h2, .part-title")?.textContent?.trim() ||
-        "Глава";
+        if (!contentNode) {
+            const error = new Error(`Не найден текст главы: ${url}`);
+            error.retryable = true;
+            throw error;
+        }
 
-    let contentNode =
-        doc.querySelector(".part_text") ||
-        doc.querySelector("#content .part_text") ||
-        doc.querySelector("[itemprop='articleBody']");
+        contentNode.querySelectorAll(`
+            .js-text-settings,
+            .js-text-settings-collapse-button,
+            .text_settings,
+            .text-settings,
+            .text-settings-panel,
+            .fanfic-text-promo,
+            .copy-button,
+            .ad,
+            .promo,
+            .chapter-time
+        `.replace(/\s+/g, " ")).forEach(element => element.remove());
 
-    if (!contentNode) {
-        let best = null;
-        let bestScore = 0;
-        for (const element of doc.querySelectorAll("div, article, section")) {
-            const text = (element.textContent || "").replace(/\s+/g, " ").trim();
-            if (text.length < 200) continue;
-            const className = String(element.className || "");
-            if (/header|footer|menu|nav|comment|promo|settings|captcha/i.test(className)) continue;
-            if (text.length > bestScore) {
-                best = element;
-                bestScore = text.length;
+        const visibleText = (contentNode.textContent || "").replace(/\s+/g, " ").trim();
+        if (!visibleText) {
+            const error = new Error(`Текст главы оказался пустым: ${url}`);
+            error.retryable = true;
+            throw error;
+        }
+
+        let notesMap = {};
+        const notesLiteral = extractAssignedLiteralAfterMarker(html, "textFootnotes");
+        if (notesLiteral) {
+            try {
+                notesMap = parseFootnotesMap(notesLiteral);
+            } catch (error) {
+                console.warn("Не удалось разобрать сноски главы:", url, error);
             }
         }
-        contentNode = best;
-    }
 
-    if (!contentNode) throw new Error(`Не найден текст главы: ${url}`);
+        const footnotes = extractFootnotes(doc, contentNode, notesMap);
+        const { plain, xhtml } = buildChapterText(contentNode);
 
-    contentNode.querySelectorAll(`
-        .js-text-settings,
-        .js-text-settings-collapse-button,
-        .text_settings,
-        .text-settings,
-        .text-settings-panel,
-        .fanfic-text-promo,
-        .copy-button,
-        .ad,
-        .promo,
-        .chapter-time
-    `.replace(/\s+/g, " ")).forEach(element => element.remove());
-
-    let notesMap = {};
-    const notesLiteral = extractAssignedLiteralAfterMarker(html, "textFootnotes");
-    if (notesLiteral) {
-        try {
-            notesMap = parseFootnotesMap(notesLiteral);
-        } catch (error) {
-            console.warn("Не удалось разобрать сноски главы:", url, error);
+        if (!plain.trim() || !xhtml.trim()) {
+            const error = new Error(`После обработки текст главы оказался пустым: ${url}`);
+            error.retryable = true;
+            throw error;
         }
-    }
 
-    const footnotes = extractFootnotes(doc, contentNode, notesMap);
-    const { plain, xhtml } = buildChapterText(contentNode);
-    return { title, plain, xhtml, footnotes };
+        onNetworkState("");
+        return { title, plain, xhtml, footnotes };
+    } catch (error) {
+        if (error?.message === "cancelled" || isCancelled()) throw new Error("cancelled");
+
+        if (attempt < MAX_ATTEMPTS) {
+            const nextAttempt = attempt + 1;
+            onNetworkState(`Глава не загрузилась полностью. Повтор ${nextAttempt}/${MAX_ATTEMPTS}…`);
+            await delay(1100 * attempt + Math.random() * 500);
+            return getChapter(url, options, nextAttempt);
+        }
+
+        throw error;
+    }
 }
+

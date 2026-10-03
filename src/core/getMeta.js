@@ -71,11 +71,9 @@ export function getExtraData(doc = document) {
                 ?.includes(label)
         );
 
-    const fandomBlock = findBlock("Фэндом:");
-
-    const fandom = fandomBlock
+    const extractLinkedValues = block => block
         ? uniqueValues(
-            Array.from(fandomBlock.querySelectorAll("a"))
+            Array.from(block.querySelectorAll("a"))
                 .map(link =>
                     link.textContent
                         .replace(/\s+/g, " ")
@@ -83,6 +81,12 @@ export function getExtraData(doc = document) {
                 )
         ).join(", ")
         : "";
+
+    const universeBlock = findBlock("Вселенная:");
+    const fandomBlock = findBlock("Фэндом:");
+
+    const universe = extractLinkedValues(universeBlock);
+    const fandom = extractLinkedValues(fandomBlock);
 
     const sizeBlock = findBlock("Размер:");
     const sizeText = sizeBlock?.textContent || "";
@@ -161,6 +165,7 @@ export function getExtraData(doc = document) {
         : [];
 
     return {
+        universe,
         fandom,
         size,
         tags,

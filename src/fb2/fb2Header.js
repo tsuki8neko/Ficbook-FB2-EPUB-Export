@@ -86,6 +86,7 @@ export function buildFb2Header({ meta, cover, bookId }) {
         description,
         notes,
         otherPublication,
+        universe,
         fandom,
         pairings,
         series,
@@ -94,6 +95,70 @@ export function buildFb2Header({ meta, cover, bookId }) {
 
     const today = new Date();
     const isoDate = today.toISOString().split("T")[0];
+
+    // Собираем аннотацию как список реальных строк. Так отсутствующие
+    // необязательные поля не оставляют десятки пустых строк в FB2.
+    const annotationLines = [
+        sourceUrl
+            ? `<p><strong>Ссылка на работу:</strong> ${externalLinkXml(sourceUrl)}</p>`
+            : "",
+        direction
+            ? `<p><strong>Направленность:</strong> ${escapeXml(direction)}</p>`
+            : "",
+        mainAuthor
+            ? `<p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)}${mainAuthor.url
+                ? ` (${escapeXml(mainAuthor.url)})`
+                : ""}</p>`
+            : "",
+        originalAuthor && originalAuthor.name !== mainAuthor?.name
+            ? `<p><strong>Автор оригинала:</strong> ${escapeXml(originalAuthor.name)}${originalAuthor.url
+                ? ` (${escapeXml(originalAuthor.url)})`
+                : ""}</p>`
+            : "",
+        originalWork?.url
+            ? `<p><strong>Оригинал:</strong> ${escapeXml(originalWork.url)}</p>`
+            : "",
+        annotationPerson("Переводчик", translators),
+        annotationPerson("Сопереводчики", coTranslators),
+        annotationPerson("Соавторы", coauthors),
+        annotationPerson("Бета", betas),
+        annotationPerson("Гамма", gammas),
+        annotationPerson("Редакторы", editors),
+        annotationPerson("Участники (роль не определена)", unclassifiedParticipants),
+        series
+            ? `<p><strong>Серия:</strong> ${escapeXml(series.name)}${series.url
+                ? ` (${escapeXml(series.url)})`
+                : ""}</p>`
+            : "",
+        universe
+            ? `<p><strong>Вселенная:</strong> ${escapeXml(universe)}</p>`
+            : "",
+        fandom
+            ? `<p><strong>Фэндом:</strong> ${escapeXml(fandom)}</p>`
+            : "",
+        pairings?.length
+            ? `<p><strong>Пейринги и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>`
+            : "",
+        rating
+            ? `<p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>`
+            : "",
+        size
+            ? `<p><strong>Размер:</strong> ${escapeXml(size)} слов</p>`
+            : "",
+        status
+            ? `<p><strong>Статус:</strong> ${escapeXml(status)}</p>`
+            : "",
+        annotationTagSections(tagSections, tags),
+        description
+            ? `<p><strong>Описание:</strong></p>${textToParagraphs(description)}`
+            : "",
+        notes
+            ? `<p><strong>Примечания:</strong></p>${textToParagraphs(notes)}`
+            : "",
+        otherPublication
+            ? `<p><strong>Публикация на других ресурсах:</strong> ${escapeXml(otherPublication)}</p>`
+            : ""
+    ].filter(Boolean).join("\n                ");
 
     return `<?xml version="1.0" encoding="utf-8"?>
 <FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -104,62 +169,7 @@ export function buildFb2Header({ meta, cover, bookId }) {
             ${(coauthors || []).map(personXml).join("\n")}
             <book-title>${escapeXml(title)}</book-title>
             <annotation>
-                ${sourceUrl
-        ? `<p><strong>Ссылка на работу:</strong> ${externalLinkXml(sourceUrl)}</p>`
-        : ""}
-                ${direction
-        ? `<p><strong>Направленность:</strong> ${escapeXml(direction)}</p>`
-        : ""}
-                ${mainAuthor
-        ? `<p><strong>Автор:</strong> ${escapeXml(mainAuthor.name)}${mainAuthor.url
-            ? ` (${escapeXml(mainAuthor.url)})`
-            : ""}</p>`
-        : ""}
-                ${originalAuthor && originalAuthor.name !== mainAuthor?.name
-        ? `<p><strong>Автор оригинала:</strong> ${escapeXml(originalAuthor.name)}${originalAuthor.url
-            ? ` (${escapeXml(originalAuthor.url)})`
-            : ""}</p>`
-        : ""}
-                ${originalWork?.url
-        ? `<p><strong>Оригинал:</strong> ${escapeXml(originalWork.url)}</p>`
-        : ""}
-                ${annotationPerson("Переводчик", translators)}
-                ${annotationPerson("Сопереводчики", coTranslators)}
-                ${annotationPerson("Соавторы", coauthors)}
-                ${annotationPerson("Бета", betas)}
-                ${annotationPerson("Гамма", gammas)}
-                ${annotationPerson("Редакторы", editors)}
-                ${annotationPerson("Участники (роль не определена)", unclassifiedParticipants)}
-                ${series
-        ? `<p><strong>Серия:</strong> ${escapeXml(series.name)}${series.url
-            ? ` (${escapeXml(series.url)})`
-            : ""}</p>`
-        : ""}
-                ${fandom
-        ? `<p><strong>Фэндом:</strong> ${escapeXml(fandom)}</p>`
-        : ""}
-                ${pairings?.length
-        ? `<p><strong>Пейринги и персонажи:</strong> ${escapeXml(pairings.join(", "))}</p>`
-        : ""}
-                ${rating
-        ? `<p><strong>Рейтинг:</strong> ${escapeXml(rating)}</p>`
-        : ""}
-                ${size
-        ? `<p><strong>Размер:</strong> ${escapeXml(size)} слов</p>`
-        : ""}
-                ${status
-        ? `<p><strong>Статус:</strong> ${escapeXml(status)}</p>`
-        : ""}
-                ${annotationTagSections(tagSections, tags)}
-                ${description
-        ? `<p><strong>Описание:</strong></p>${textToParagraphs(description)}`
-        : ""}
-                ${notes
-        ? `<p><strong>Примечания:</strong></p>${textToParagraphs(notes)}`
-        : ""}
-                ${otherPublication
-        ? `<p><strong>Публикация на других ресурсах:</strong> ${escapeXml(otherPublication)}</p>`
-        : ""}
+                ${annotationLines}
             </annotation>
             ${tags ? `<keywords>${escapeXml(tags)}</keywords>` : ""}
             <date value="${isoDate}">${today.toLocaleDateString("ru-RU")}</date>

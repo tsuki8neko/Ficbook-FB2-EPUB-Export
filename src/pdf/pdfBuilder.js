@@ -138,6 +138,13 @@ function metaRows(meta) {
     );
 
     add(
+        "Вселенная",
+        meta.universe
+            ? plainValue(meta.universe)
+            : []
+    );
+
+    add(
         "Фэндом",
         meta.fandom
             ? plainValue(meta.fandom)
@@ -386,6 +393,7 @@ export function buildPdfDefinition({
                 "UnknownAuthor",
             subject:
                 meta.fandom ||
+                meta.universe ||
                 "fanfiction",
 
             /*

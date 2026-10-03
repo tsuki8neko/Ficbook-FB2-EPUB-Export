@@ -71,6 +71,7 @@ export function buildTitlePage({ meta, cover }) {
         description,
         notes,
         otherPublication,
+        universe,
         fandom,
         pairings,
         series,
@@ -107,6 +108,9 @@ export function buildTitlePage({ meta, cover }) {
         ? `<p><strong>Серия:</strong> ${escapeXml(series.name)}${series.url
             ? ` (${escapeXml(series.url)})`
             : ""}</p>`
+        : ""}
+            ${universe
+        ? `<p><strong>Вселенная:</strong> ${escapeXml(universe)}</p>`
         : ""}
             ${fandom
         ? `<p><strong>Фэндом:</strong> ${escapeXml(fandom)}</p>`

@@ -4,6 +4,7 @@ import { getExtraData, getDirectionRatingStatus, getOriginalAuthor, getOriginalW
 import { getChapter } from "./getChapter.js";
 import { getCover } from "./getCover.js";
 import { delay } from "../utils/delay.js";
+import { fetchTextWithRetries } from "../utils/network.js";
 
 const workDocumentCache = new Map();
 
@@ -14,16 +15,39 @@ function currentWorkUrl() {
     return new URL(`/readfic/${parts[1]}`, url.origin).href;
 }
 
-async function loadWorkDocument(workUrl) {
+function normalizeRequestedWorkUrl(value) {
+    const url = new URL(value, location.origin);
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (url.origin !== location.origin || parts[0] !== "readfic" || !parts[1]) {
+        throw new Error("Некорректная ссылка на произведение Ficbook.");
+    }
+    return new URL(`/readfic/${parts[1]}`, url.origin).href;
+}
+
+async function loadWorkDocument(workUrl, options = {}) {
     const current = new URL(location.href);
     const work = new URL(workUrl);
     if (current.pathname.replace(/\/$/, "") === work.pathname.replace(/\/$/, "")) return document;
 
     if (!workDocumentCache.has(workUrl)) {
         workDocumentCache.set(workUrl, (async () => {
-            const response = await fetch(workUrl, { credentials: "same-origin" });
-            if (!response.ok) throw new Error(`Не удалось загрузить страницу произведения: HTTP ${response.status}`);
-            const html = await response.text();
+            const { text: html } = await fetchTextWithRetries(workUrl, {
+                credentials: "same-origin",
+                isCancelled: options.isCancelled,
+                onState: options.onNetworkState,
+                maxAttempts: 5,
+                retryBaseMs: 1200,
+                requestTimeoutMs: 45000,
+                validateText: text => {
+                    if (!text || text.length < 800) return false;
+                    if (!/<\/body\s*>/i.test(text) && !/<\/html\s*>/i.test(text)) return false;
+                    if (/cf-browser-verification|Cloudflare|Too Many Requests|<title>\s*(?:429|500|502|503|504)/i.test(text)) {
+                        return false;
+                    }
+                    const probe = new DOMParser().parseFromString(text, "text/html");
+                    return !!probe.querySelector(".fanfic-hat-body, h1.heading");
+                }
+            });
             const doc = new DOMParser().parseFromString(html, "text/html");
             if (!doc.querySelector(".fanfic-hat-body, h1.heading")) {
                 throw new Error("Страница произведения загружена, но её структура не распознана.");
@@ -67,7 +91,7 @@ function extractChapterUrls(doc, workUrl) {
     return [...new Set(urls.length ? urls : [workUrl])];
 }
 
-async function loadChapters(urls, onProgress, isCancelled) {
+async function loadChapters(urls, onProgress, isCancelled, options = {}) {
     const results = new Array(urls.length).fill(null);
     let pending = urls.map((_, index) => index);
     const maxAttempts = 3;
@@ -83,7 +107,10 @@ async function loadChapters(urls, onProgress, isCancelled) {
 
             try {
                 results[index] = {
-                    ...(await getChapter(urls[index], { isCancelled })),
+                    ...(await getChapter(urls[index], {
+                        isCancelled,
+                        onNetworkState: options.onNetworkState
+                    })),
                     url: urls[index],
                     number: index + 1
                 };
@@ -129,7 +156,7 @@ function metadataWarnings(doc, meta) {
 
     if (!hasTitleNode) warnings.push("не найдено название произведения");
     if (!meta.mainAuthor || meta.mainAuthor.missing) warnings.push("не найден автор");
-    if (!meta.fandom) warnings.push("не найден фэндом");
+    if (!meta.fandom && !meta.universe) warnings.push("не найдены фэндом и вселенная");
     if (!meta.direction) warnings.push("не найдена направленность");
     if (!meta.rating) warnings.push("не найден рейтинг");
     if (!meta.status) warnings.push("не найден статус произведения");
@@ -155,10 +182,15 @@ function createMetadataWarningError(warnings) {
 
 export async function collectBook(onProgress = () => {}, isCancelled = () => false, options = {}) {
     const onStage = typeof options.onStage === "function" ? options.onStage : () => {};
-    const workUrl = currentWorkUrl();
+    const workUrl = options.workUrl
+        ? normalizeRequestedWorkUrl(options.workUrl)
+        : currentWorkUrl();
 
     onStage("Страница произведения…");
-    const doc = await loadWorkDocument(workUrl);
+    const doc = await loadWorkDocument(workUrl, {
+        isCancelled,
+        onNetworkState: options.onNetworkState
+    });
     if (isCancelled()) throw new Error("cancelled");
 
     onStage("Метаданные…");
@@ -205,6 +237,12 @@ export async function collectBook(onProgress = () => {}, isCancelled = () => fal
         sourceUrl: workUrl
     };
 
+    options.onBookInfo?.({
+        title: meta.title,
+        author: meta.mainAuthor?.name || "Неизвестный автор",
+        sourceUrl: workUrl
+    });
+
     const warnings = metadataWarnings(doc, meta);
     meta.warnings = warnings;
 
@@ -238,7 +276,9 @@ export async function collectBook(onProgress = () => {}, isCancelled = () => fal
         });
 
     onStage("Подготовка списка глав…");
-    const chapters = await loadChapters(chapterUrls, onProgress, isCancelled);
+    const chapters = await loadChapters(chapterUrls, onProgress, isCancelled, {
+        onNetworkState: options.onNetworkState
+    });
     chaptersReady = true;
 
     if (!chapters.length) throw new Error("Не удалось загрузить главы произведения.");
