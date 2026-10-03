@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.9.1...v1.10.0) (2026-10-03)
+
+
+### Features
+
+* add batch export for collections, series, and author works ([7d1042d](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/7d1042dbfc56361b158195afde67985cfc4ef50d))
+
 ## [1.9.1](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.9.0...v1.9.1) (2026-10-02)
 
 
