@@ -1,6 +1,7 @@
 # Ficbook Exporter — FB2, EPUB, PDF and TXT Downloader
 
-Userscript для скачивания произведений с [Ficbook](https://ficbook.net) и чтения их оффлайн.
+Userscript для скачивания произведений с [Ficbook](https://ficbook.net) и чтения их оффлайн. 
+Поддерживает как отдельные произведения, так и массовый экспорт всех работ автора, сборников и серий.
 
 ## Как выглядит кнопка
 
@@ -16,6 +17,7 @@ Userscript для скачивания произведений с [Ficbook](htt
 
 - скачивание произведения со страницы работы или любой открытой главы;
 - загрузка всех доступных глав с сохранением их порядка и названий;
+- массовое скачивание всех работ автора, сборников и серий с упаковкой результатов в ZIP;
 - экспорт в **FB2**, **EPUB**, **PDF** и **TXT**;
 - сохранение обложки в FB2, EPUB и PDF;
 - поддержка обложек JPEG, PNG и WebP с преобразованием для совместимости с читалками;
@@ -68,13 +70,66 @@ Userscript для скачивания произведений с [Ficbook](htt
 
 После обработки книга будет сохранена через браузер.
 
+## Массовое скачивание
+
+Ficbook Exporter также поддерживает массовый экспорт нескольких произведений.
+
+### Все работы автора
+
+<p align="left"><img src="https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/refs/heads/master/docs/author2.jpg" alt="Меню выбора формата Ficbook Exporter" width="320">
+</p>
+
+На странице работ автора появляются кнопки для массового скачивания:
+
+- **Скачать все работы** — скачать все доступные произведения автора;
+- **Скачать по фильтрам** — скачать только произведения, соответствующие выбранным на Ficbook фильтрам.
+
+Поддерживаются параметры сортировки и фильтрации страницы. Служебные параметры Ficbook, не влияющие на состав списка, при обработке игнорируются.
+
+### Сборники
+
+<p align="left"><img src="https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/refs/heads/master/docs/collections.jpg" alt="Меню выбора формата Ficbook Exporter" width="320">
+</p>
+
+На странице сборника доступны:
+
+- **Скачать весь сборник** — скачать все произведения сборника независимо от активных фильтров;
+- **Скачать по фильтрам** — скачать только произведения, соответствующие текущим фильтрам.
+
+При скачивании всего сборника скрипт использует полную версию списка и дополнительно проверяет, что найдено ожидаемое количество произведений.
+
+### Серии
+
+<p align="left"><img src="https://raw.githubusercontent.com/tsuki8neko/Ficbook-FB2-EPUB-Export/refs/heads/master/docs/series.jpg" alt="Меню выбора формата Ficbook Exporter" width="320">
+</p>
+
+На странице серии появляется кнопка **Скачать серию**, позволяющая скачать все произведения серии в выбранном формате.
+
+### Как работает массовый экспорт
+
+Для массового скачивания можно выбрать **FB2**, **EPUB**, **PDF** или **TXT**.
+
+Каждое произведение создаётся как отдельный файл, после чего готовые файлы упаковываются в один ZIP-архив.
+
+Во время работы отображаются:
+
+- номер текущего произведения и общее количество;
+- название произведения;
+- автор;
+- номер загружаемой главы;
+- текущий этап обработки.
+
+Если отдельная глава или произведение не удалось загрузить после повторных попыток, скрипт не создаёт заведомо неполный результат.
+
+Во время массового экспорта не закрывайте и не перезагружайте страницу. В фоне загрузка может замедлиться или приостановиться из-за ограничений браузера или операционной системы.
+
 ## Если экспорт не работает
 
 - Обновите страницу Ficbook после установки или обновления скрипта.
 - Убедитесь, что используется последняя версия userscript.
 - Разрешите скрипту доступ к `assets.teinon.net`, иначе обложка не загрузится.
 - Проверьте, не блокирует ли браузер или расширение доступ к CDN: он требуется для создания EPUB и PDF.
-- Если хотя бы одна глава не загрузилась после трёх попыток, файл не создаётся. Скрипт покажет список проблемных глав, чтобы вы могли повторить экспорт и получить полную книгу.
+- Если хотя бы одна глава не загрузилась после повторных попыток, файл не создаётся. Скрипт покажет список проблемных глав, чтобы вы могли повторить экспорт и получить полную книгу.
 
 ## Дисклеймер
 
@@ -86,7 +141,7 @@ Userscript для скачивания произведений с [Ficbook](htt
 
 # Ficbook Exporter — FB2, EPUB, PDF and TXT Downloader
 
-A userscript for downloading works from [Ficbook](https://ficbook.net) for offline reading.
+A userscript for downloading works from [Ficbook](https://ficbook.net) for offline reading, including individual works, all works by an author, collections, and series.
 
 Supported formats: **FB2**, **EPUB**, **PDF**, and **TXT**.
 
@@ -94,6 +149,7 @@ Supported formats: **FB2**, **EPUB**, **PDF**, and **TXT**.
 
 - start the export from a work page or any chapter page;
 - download all available chapters in the correct order;
+- batch export all works by an author, collections, and series into a ZIP archive;
 - embed the cover in FB2, EPUB, and PDF;
 - support JPEG, PNG, and WebP covers;
 - preserve chapter titles, text structure, and footnotes;
@@ -133,7 +189,53 @@ The latest published version can also be installed directly:
 
 The generated file will be saved by the browser.
 
-If any chapter still cannot be loaded after three attempts, no file is created. The script lists the failed chapters so that the export can be retried later without saving an incomplete book.
+If any chapter still cannot be loaded after the retry attempts, no file is created. The script lists the failed chapters so that the export can be retried later without saving an incomplete book.
+
+## Batch downloads
+
+Ficbook Exporter also supports exporting multiple works at once.
+
+### Author works
+
+On an author's works page, additional batch download controls are available:
+
+- **Download all works** — export all available works by the author;
+- **Download by filters** — export only the works matching the filters currently selected on Ficbook.
+
+Sorting and filtering parameters are preserved when using filtered export.
+
+### Collections
+
+Collection pages provide two batch export options:
+
+- **Download entire collection** — export every work in the collection regardless of the currently active filters;
+- **Download by filters** — export only the works matching the current collection filters.
+
+When downloading the entire collection, the script uses the unfiltered collection list and verifies that the expected number of works has been found.
+
+### Series
+
+A **Download series** button is added to series pages and can export every work in the series.
+
+### How batch export works
+
+Batch downloads support **FB2**, **EPUB**, **PDF**, and **TXT**.
+
+Each work is generated as a separate file. The completed files are then packed into a single ZIP archive.
+
+The progress window shows the current work, title, author, chapter progress, and current processing stage.
+
+If a chapter or work still cannot be loaded after the available retry attempts, the script does not silently create an incomplete result.
+
+Do not close or reload the page while a batch export is running. Background execution may become slower or be temporarily suspended because of browser or operating-system restrictions.
+
+## If export does not work
+
+- Reload the Ficbook page after installing or updating the userscript.
+- Make sure you are using the latest version of the userscript.
+- Allow the script to access `assets.teinon.net`; otherwise, the cover cannot be downloaded.
+- Check whether your browser or an extension is blocking access to the CDN required for EPUB and PDF generation.
+- If at least one chapter still cannot be loaded after the retry attempts, the file is not created. The script will show the problematic chapters so that you can retry the export later and avoid saving an incomplete book.
 
 ## Disclaimer
 
