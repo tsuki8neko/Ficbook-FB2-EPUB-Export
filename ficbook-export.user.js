@@ -3,8 +3,8 @@
 // @name:ru        Скачивание книг с Фикбука в FB2, EPUB, TXT и PDF
 // @name:en        Ficbook Exporter — FB2, EPUB, TXT and PDF
 // @namespace      http://tampermonkey.net/
-// @version        1.10.0
-// @build          2026-10-03 09:23
+// @version        1.10.1
+// @build          2026-10-03 09:47
 // @description    Export Ficbook works to FB2, EPUB, TXT and PDF with embedded covers
 // @description:en Export Ficbook works to FB2, EPUB, TXT and PDF with embedded covers
 // @description:ru Экспорт произведений Фикбука в FB2, EPUB, TXT и PDF со встроенными обложками
@@ -4820,15 +4820,28 @@ function filteredAuthorInfo() {
     };
 }
 
+function collectionCountFromDoc(doc) {
+    const heading = doc?.querySelector?.(".collections-page-heading");
+    const headingText = heading?.textContent?.replace(/\s+/g, " ")?.trim() || "";
+    const countMatch = headingText.match(/\((\d+)\)\s*$/);
+    return countMatch ? Number.parseInt(countMatch[1], 10) : 0;
+}
+
 function collectionInfo() {
     const heading = document.querySelector(".collections-page-heading");
     const headingText = heading?.textContent?.replace(/\s+/g, " ")?.trim() || "Сборник";
-    const countMatch = headingText.match(/\((\d+)\)\s*$/);
-    const expectedCount = countMatch ? Number.parseInt(countMatch[1], 10) : 0;
     const label = headingText.replace(/\s*\(\d+\)\s*$/, "").trim() || "Сборник";
     const url = new URL(location.href);
     url.search = "";
     url.hash = "";
+
+    // На странице с активными фильтрами число возле заголовка может относиться
+    // только к отфильтрованной выдаче. Для кнопки «Скачать сборник» мы идём на
+    // чистый URL без query-параметров, поэтому точное общее число возьмём уже
+    // из загруженной нефильтрованной страницы в collectAllWorkUrls().
+    const expectedCount = hasMeaningfulQueryFilters(location.href)
+        ? 0
+        : collectionCountFromDoc(document);
 
     return {
         type: "collection",
@@ -4927,6 +4940,16 @@ async function collectAllWorkUrls(info, onStatus, isCancelled) {
                 if (state) onStatus(state);
             }
         });
+
+        // Если «Скачать сборник» запущено со страницы, где были активны фильтры,
+        // исходное число возле заголовка нельзя использовать: оно может быть числом
+        // результатов фильтра. После загрузки чистой страницы сборника восстанавливаем
+        // настоящее общее количество и снова используем строгую проверку полноты.
+        if (info.type === "collection" && info.expectedCount <= 0) {
+            const total = collectionCountFromDoc(doc);
+            if (total > 0) info.expectedCount = total;
+        }
+
         extractWorkUrls(doc).forEach(url => works.add(url));
         onStatus(`Проверка списка: страница ${visited.size}, найдено ${works.size}`);
 
