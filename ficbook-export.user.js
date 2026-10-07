@@ -3,8 +3,8 @@
 // @name:ru        Скачивание книг с Фикбука в FB2, EPUB, TXT и PDF
 // @name:en        Ficbook Exporter — FB2, EPUB, TXT and PDF
 // @namespace      http://tampermonkey.net/
-// @version        1.10.1
-// @build          2026-10-03 09:47
+// @version        1.10.2
+// @build          2026-10-07 16:04
 // @description    Export Ficbook works to FB2, EPUB, TXT and PDF with embedded covers
 // @description:en Export Ficbook works to FB2, EPUB, TXT and PDF with embedded covers
 // @description:ru Экспорт произведений Фикбука в FB2, EPUB, TXT и PDF со встроенными обложками
@@ -323,8 +323,33 @@ function getHeaderRoots(doc) {
     return [...new Set(candidates)];
 }
 
+function isDirectAuthorProfileLink(link) {
+    const href = link?.getAttribute?.("href") || "";
+    if (!href) return false;
+
+    try {
+        const base =
+            location.origin && location.origin !== "null"
+                ? location.origin
+                : "https://ficbook.net";
+        const url = new URL(href, base);
+
+        // Участник произведения ведёт на корневую страницу автора:
+        // /authors/<id>. Ссылки вроде /authors/<id>/profile/works, /blog и т.п.
+        // относятся к навигации/карточке профиля и не являются участниками.
+        return /^\/authors\/[^/]+\/?$/.test(url.pathname);
+    } catch (_) {
+        return /^\/?authors\/[^/?#]+\/?(?:[?#]|$)/.test(href);
+    }
+}
+
 function isExcludedProfileLink(link) {
     if (!link) return true;
+
+    // Берём только прямые ссылки на профиль участника. Ficbook может динамически
+    // добавлять рядом карточку автора со ссылками на "Работы", "Блог" и т.д.
+    // Иначе счётчик работ (например, "54") ошибочно становится именем участника.
+    if (!isDirectAuthorProfileLink(link)) return true;
 
     // Ссылки на пользователей встречаются не только в блоке участников произведения.
     // В частности, Ficbook показывает профили людей, которые наградили работу,
