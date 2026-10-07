@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.2](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.10.1...v1.10.2) (2026-10-07)
+
+
+### Bug Fixes
+
+* prevent author work counts from being parsed as roles ([b726ca0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/b726ca030cf01268a9d32386c1e35bc773862085))
+
 ## [1.10.1](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.10.0...v1.10.1) (2026-10-03)
 
 
