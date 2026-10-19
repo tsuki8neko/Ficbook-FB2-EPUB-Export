@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.3](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.10.2...v1.10.3) (2026-10-19)
+
+
+### Bug Fixes
+
+* export EPUB tags as separate dc:subject entries ([16c3087](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/16c3087b3224fd6a478161209efcf2ef5568677a))
+
 ## [1.10.2](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.10.1...v1.10.2) (2026-10-07)
 
 
