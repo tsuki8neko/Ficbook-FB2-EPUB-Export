@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.10.3...v1.11.0) (2026-10-27)
+
+
+### Features
+
+* add batch work lists and fix author buttons ([b375cdd](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/commit/b375cdd9d158a0b5744142f601647537eba2df7e))
+
 ## [1.10.3](https://github.com/tsuki8neko/Ficbook-FB2-EPUB-Export/compare/v1.10.2...v1.10.3) (2026-10-19)
 
 
