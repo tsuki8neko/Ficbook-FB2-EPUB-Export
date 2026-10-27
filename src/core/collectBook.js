@@ -240,7 +240,10 @@ export async function collectBook(onProgress = () => {}, isCancelled = () => fal
     options.onBookInfo?.({
         title: meta.title,
         author: meta.mainAuthor?.name || "Неизвестный автор",
-        sourceUrl: workUrl
+        sourceUrl: workUrl,
+        // Пакетный экспорт использует полный набор уже разобранных метаданных
+        // для необязательного TXT-каталога. Одиночный экспорт это поле игнорирует.
+        meta
     });
 
     const warnings = metadataWarnings(doc, meta);

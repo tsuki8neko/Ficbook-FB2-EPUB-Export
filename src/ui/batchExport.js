@@ -12,6 +12,12 @@ const BETWEEN_WORKS_MIN_MS = 1500;
 const BETWEEN_WORKS_MAX_MS = 3000;
 const WHOLE_WORK_RETRY_MIN_MS = 4500;
 const WHOLE_WORK_RETRY_MAX_MS = 7000;
+const BATCH_LIST_SETTINGS_KEY = "ficbook-exporter:batch-list-settings:v1";
+const BATCH_LIST_FILE_NAME = "! Список произведений.txt";
+const DEFAULT_BATCH_LIST_SETTINGS = Object.freeze({
+    includeList: true,
+    listMode: "short"
+});
 
 function isAuthorProfilePage() {
     return /^\/authors\/[^/]+\/?$/.test(location.pathname);
@@ -389,7 +395,10 @@ async function collectAllWorkUrls(info, onStatus, isCancelled) {
         extractWorkUrls(doc).forEach(url => works.add(url));
         onStatus(`Проверка списка: страница ${visited.size}, найдено ${works.size}`);
 
-        if (info.expectedCount > 0 && works.size === info.expectedCount) break;
+        // Для профиля автора число в боковом счётчике бывает справочным и
+        // может не совпадать с реально доступным списком. Поэтому список автора
+        // всегда обходим до конца пагинации, даже если счётчик уже достигнут.
+        if (info.type !== "author" && info.expectedCount > 0 && works.size === info.expectedCount) break;
 
         for (const nextUrl of paginationUrls(doc, info.listUrl, info)) {
             if (!visited.has(nextUrl) && !queue.includes(nextUrl)) queue.push(nextUrl);
@@ -521,6 +530,19 @@ body.dark-theme .fbe-batch-menu button:focus-visible { background: rgba(255,255,
 }
 .fbe-batch-action-primary { background: #4f86c6; border-color: #2f639d; color: #fff; }
 .fbe-batch-action-danger { background: #c62828; border-color: #a91f1f; color: #fff; }
+.fbe-batch-list-options {
+    margin: 12px 0 14px;
+    padding: 12px 14px;
+    border: 1px solid rgba(64,48,35,.16);
+    border-radius: 8px;
+    background: rgba(79,134,198,.06);
+}
+.fbe-batch-list-option { display: flex; align-items: flex-start; gap: 8px; line-height: 1.4; cursor: pointer; }
+.fbe-batch-list-option + .fbe-batch-list-option { margin-top: 7px; }
+.fbe-batch-list-option input { margin-top: 3px; flex: 0 0 auto; }
+.fbe-batch-list-modes { margin: 9px 0 0 24px; }
+.fbe-batch-list-modes.is-disabled { opacity: .55; }
+.fbe-batch-list-hint { margin: 8px 0 0 24px; color: #6c5a4d; font-size: 12px; line-height: 1.4; }
 .fbe-batch-error-list { margin: 10px 0 0 20px; padding: 0; color: #b71c1c; }
 .fbe-batch-warning-title { color: #c62828; }
 body.dark-theme .fbe-batch-dialog { background: #2d2723; color: #f4ece5; border-color: rgba(255,255,255,.14); }
@@ -532,6 +554,8 @@ body.dark-theme .fbe-batch-do-not-close { background: rgba(255,100,100,.12); col
 body.dark-theme .fbe-batch-action { background: #3a322d; color: #f4ece5; border-color: rgba(255,255,255,.2); }
 body.dark-theme .fbe-batch-action-primary { background: #356da9; color: #fff; }
 body.dark-theme .fbe-batch-action-danger { background: #b72a2a; color: #fff; }
+body.dark-theme .fbe-batch-list-options { background: rgba(79,134,198,.10); border-color: rgba(255,255,255,.14); }
+body.dark-theme .fbe-batch-list-hint { color: #cdbfb4; }
 `;
     document.head.appendChild(style);
 }
@@ -563,15 +587,106 @@ function actionButton(text, className = "") {
     return button;
 }
 
+function loadBatchListSettings() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(BATCH_LIST_SETTINGS_KEY) || "null");
+        return {
+            includeList: typeof saved?.includeList === "boolean"
+                ? saved.includeList
+                : DEFAULT_BATCH_LIST_SETTINGS.includeList,
+            listMode: saved?.listMode === "extended" ? "extended" : "short"
+        };
+    } catch (_) {
+        return { ...DEFAULT_BATCH_LIST_SETTINGS };
+    }
+}
+
+function saveBatchListSettings(settings) {
+    try {
+        localStorage.setItem(BATCH_LIST_SETTINGS_KEY, JSON.stringify({
+            includeList: !!settings?.includeList,
+            listMode: settings?.listMode === "extended" ? "extended" : "short"
+        }));
+    } catch (_) {
+        // Если хранилище браузера недоступно, настройки просто не запоминаются.
+    }
+}
+
 function confirmBatchStart(info, format, count) {
     return new Promise(resolve => {
         const { overlay, dialog } = makeOverlay(`${typeLabel(info)} → ${format}`);
+        const savedSettings = loadBatchListSettings();
 
         const text = document.createElement("p");
         text.className = "fbe-batch-summary";
         text.textContent =
             `Найдено работ: ${count}. Формат: ${format}. ` +
             "Каждое произведение будет отдельным файлом, а после проверки полноты все файлы будут упакованы в один ZIP.";
+
+        const listOptions = document.createElement("div");
+        listOptions.className = "fbe-batch-list-options";
+
+        const includeLabel = document.createElement("label");
+        includeLabel.className = "fbe-batch-list-option";
+        const includeList = document.createElement("input");
+        includeList.type = "checkbox";
+        includeList.checked = savedSettings.includeList;
+        const includeText = document.createElement("span");
+        includeText.textContent = `Добавить «${BATCH_LIST_FILE_NAME}» в архив`;
+        includeLabel.append(includeList, includeText);
+
+        const modes = document.createElement("div");
+        modes.className = "fbe-batch-list-modes";
+
+        const shortLabel = document.createElement("label");
+        shortLabel.className = "fbe-batch-list-option";
+        const shortMode = document.createElement("input");
+        shortMode.type = "radio";
+        shortMode.name = "fbe-batch-list-mode";
+        shortMode.value = "short";
+        shortMode.checked = savedSettings.listMode !== "extended";
+        const shortText = document.createElement("span");
+        shortText.textContent = "Краткий список — автор и название";
+        shortLabel.append(shortMode, shortText);
+
+        const extendedLabel = document.createElement("label");
+        extendedLabel.className = "fbe-batch-list-option";
+        const extendedMode = document.createElement("input");
+        extendedMode.type = "radio";
+        extendedMode.name = "fbe-batch-list-mode";
+        extendedMode.value = "extended";
+        extendedMode.checked = savedSettings.listMode === "extended";
+        const extendedText = document.createElement("span");
+        extendedText.textContent = "Расширенный список — основная информация из шапки каждого произведения";
+        extendedLabel.append(extendedMode, extendedText);
+        modes.append(shortLabel, extendedLabel);
+
+        const hint = document.createElement("div");
+        hint.className = "fbe-batch-list-hint";
+        hint.textContent = "Список сортируется по реальным именам файлов в ZIP, чтобы его было легко сопоставить с книгами.";
+
+        const syncModes = () => {
+            shortMode.disabled = !includeList.checked;
+            extendedMode.disabled = !includeList.checked;
+            modes.classList.toggle("is-disabled", !includeList.checked);
+        };
+
+        const persist = () => {
+            saveBatchListSettings({
+                includeList: includeList.checked,
+                listMode: extendedMode.checked ? "extended" : "short"
+            });
+        };
+
+        includeList.addEventListener("change", () => {
+            syncModes();
+            persist();
+        });
+        shortMode.addEventListener("change", persist);
+        extendedMode.addEventListener("change", persist);
+        syncModes();
+
+        listOptions.append(includeLabel, modes, hint);
 
         const note = document.createElement("p");
         note.className = "fbe-batch-summary";
@@ -590,14 +705,21 @@ function confirmBatchStart(info, format, count) {
         const cancel = actionButton("Отмена");
         const start = actionButton("Начать", "fbe-batch-action-primary");
         actions.append(cancel, start);
-        dialog.append(text, note, warning, actions);
+        dialog.append(text, listOptions, note, warning, actions);
 
         const finish = value => {
             overlay.remove();
             resolve(value);
         };
-        cancel.addEventListener("click", () => finish(false), { once: true });
-        start.addEventListener("click", () => finish(true), { once: true });
+        cancel.addEventListener("click", () => finish(null), { once: true });
+        start.addEventListener("click", () => {
+            const settings = {
+                includeList: includeList.checked,
+                listMode: extendedMode.checked ? "extended" : "short"
+            };
+            saveBatchListSettings(settings);
+            finish(settings);
+        }, { once: true });
         start.focus();
     });
 }
@@ -743,6 +865,40 @@ function createProgressDialog(info, format, total) {
     };
 }
 
+function confirmAuthorCountMismatch(info, foundCount) {
+    return new Promise(resolve => {
+        const { overlay, dialog, title } = makeOverlay("Счётчик Ficbook не совпал");
+        title.classList.add("fbe-batch-warning-title");
+
+        const text = document.createElement("p");
+        text.className = "fbe-batch-summary";
+        text.textContent =
+            `В профиле Ficbook указано ${info.expectedCount} работ, а в доступном списке найдено ${foundCount}. ` +
+            "Такое бывает, если одна из работ скрыта или недоступна посетителю либо счётчик профиля обновился не сразу.";
+
+        const note = document.createElement("p");
+        note.className = "fbe-batch-summary";
+        note.textContent =
+            `Экспортёр прошёл все доступные страницы списка. Можно продолжить и скачать ${foundCount} найденных работ. ` +
+            "Работа, которой нет в списке Ficbook, в архив попасть не сможет.";
+
+        const actions = document.createElement("div");
+        actions.className = "fbe-batch-actions";
+        const cancel = actionButton("Отмена");
+        const proceed = actionButton(`Скачать ${foundCount} работ`, "fbe-batch-action-primary");
+        actions.append(cancel, proceed);
+        dialog.append(text, note, actions);
+
+        const finish = value => {
+            overlay.remove();
+            resolve(value);
+        };
+        cancel.addEventListener("click", () => finish(false), { once: true });
+        proceed.addEventListener("click", () => finish(true), { once: true });
+        proceed.focus();
+    });
+}
+
 function showFatalResult(title, message, failed = []) {
     return new Promise(resolve => {
         const { overlay, dialog, title: titleElement } = makeOverlay(title);
@@ -831,7 +987,124 @@ async function validateArtifact(artifact, format) {
     return true;
 }
 
-async function createArchive(info, format, workUrls, artifacts, progress) {
+function batchListContextLine(info) {
+    const label = String(info?.label || "").trim() || "Без названия";
+    if (info?.type === "author") return `Все работы автора: ${label}`;
+    if (info?.type === "author-filtered") return `Работы автора по фильтрам: ${label}`;
+    if (info?.type === "collection") return `Сборник: ${label}`;
+    if (info?.type === "collection-filtered") return `Сборник по фильтрам: ${label}`;
+    if (info?.type === "series") return `Серия: ${label}`;
+    return `${typeLabel(info)}: ${label}`;
+}
+
+function normalizeListText(value, { multiline = false } = {}) {
+    const text = String(value ?? "")
+        .replace(/\r\n?/g, "\n")
+        .replace(/[\t\f\v]+/g, " ")
+        .trim();
+
+    if (!text) return "";
+    if (!multiline) return text.replace(/\s+/g, " ");
+
+    return text
+        .split("\n")
+        .map(line => line.replace(/[ \u00a0]+/g, " ").trim())
+        .join("\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+}
+
+function participantNames(values) {
+    if (!Array.isArray(values)) return "";
+    return [...new Set(values
+        .map(value => normalizeListText(value?.name ?? value))
+        .filter(Boolean))]
+        .join(", ");
+}
+
+function bookListData(entry) {
+    const bookInfo = entry?.artifact?.batchBookInfo || {};
+    const meta = bookInfo?.meta || {};
+    return {
+        bookInfo,
+        meta,
+        title: normalizeListText(meta.title || bookInfo.title) || "Без названия",
+        author: normalizeListText(meta.mainAuthor?.name || bookInfo.author) || "Неизвестный автор"
+    };
+}
+
+function appendDetail(lines, label, value, { multiline = false } = {}) {
+    const text = normalizeListText(value, { multiline });
+    if (!text) return;
+
+    if (multiline && text.includes("\n")) {
+        lines.push(`${label}:`, text);
+    } else {
+        lines.push(`${label}: ${text}`);
+    }
+}
+
+function createWorksListText(info, format, entries, mode) {
+    const lines = [
+        batchListContextLine(info),
+        `Произведений: ${entries.length}`,
+        `Формат: ${format}`,
+        ""
+    ];
+
+    if (mode !== "extended") {
+        entries.forEach((entry, index) => {
+            const { title, author } = bookListData(entry);
+            lines.push(`${index + 1}. ${author} — ${title}`);
+        });
+        return `\ufeff${lines.join("\r\n")}\r\n`;
+    }
+
+    const divider = "=".repeat(78);
+
+    entries.forEach((entry, index) => {
+        const { bookInfo, meta, title, author } = bookListData(entry);
+        lines.push(divider, `${index + 1}. ${author} — ${title}`, divider);
+        appendDetail(lines, "Файл", entry.archiveName);
+        appendDetail(lines, "Название", title);
+        appendDetail(lines, "Автор", author);
+        appendDetail(lines, "Соавторы", participantNames(meta.coauthors));
+        appendDetail(lines, "Переводчики", participantNames(meta.translators));
+        appendDetail(lines, "Сопереводчики", participantNames(meta.coTranslators));
+        appendDetail(lines, "Беты", participantNames(meta.betas));
+        appendDetail(lines, "Гаммы", participantNames(meta.gammas));
+        appendDetail(lines, "Редакторы", participantNames(meta.editors));
+        appendDetail(lines, "Участники (роль не определена)", participantNames(meta.unclassifiedParticipants));
+        appendDetail(lines, "Автор оригинала", meta.originalAuthor?.name);
+        appendDetail(lines, "Оригинал", meta.originalWork?.url);
+        appendDetail(lines, "Серия", meta.series?.name);
+        appendDetail(lines, "Вселенная", meta.universe);
+        appendDetail(lines, "Фэндом", meta.fandom);
+        appendDetail(lines, "Пэйринг и персонажи", Array.isArray(meta.pairings) ? meta.pairings.join(", ") : meta.pairings);
+        appendDetail(lines, "Направленность", meta.direction);
+        appendDetail(lines, "Рейтинг", meta.rating);
+        appendDetail(lines, "Статус", meta.status);
+        appendDetail(lines, "Размер", meta.size ? `${normalizeListText(meta.size)} слов` : "");
+
+        if (Array.isArray(meta.tagSections) && meta.tagSections.length) {
+            for (const section of meta.tagSections) {
+                appendDetail(lines, section?.label || "Метки", Array.isArray(section?.tags) ? section.tags.join(", ") : "");
+            }
+        } else {
+            appendDetail(lines, "Метки", meta.tags);
+        }
+
+        appendDetail(lines, "Описание", meta.description, { multiline: true });
+        appendDetail(lines, "Примечания автора", meta.notes, { multiline: true });
+        appendDetail(lines, "Публикация на других ресурсах", meta.otherPublication, { multiline: true });
+        appendDetail(lines, "Источник", meta.sourceUrl || bookInfo.sourceUrl || entry.url);
+        lines.push("");
+    });
+
+    return `\ufeff${lines.join("\r\n")}\r\n`;
+}
+
+async function createArchive(info, format, workUrls, artifacts, progress, batchOptions = DEFAULT_BATCH_LIST_SETTINGS) {
     if (progress.isCancelled()) throw new Error("cancelled");
 
     progress.setStage(`Финальная проверка: ${artifacts.length}/${workUrls.length} файлов…`);
@@ -872,17 +1145,47 @@ async function createArchive(info, format, workUrls, artifacts, progress) {
 
     const zip = new JSZip();
     const usedNames = new Set();
+    const archiveEntries = [];
 
     for (const url of workUrls) {
         if (progress.isCancelled()) throw new Error("cancelled");
         const artifact = byUrl.get(url);
         const archiveName = uniqueArchiveName(artifact.fileName, usedNames);
-        zip.file(archiveName, artifact.blob);
+        archiveEntries.push({ url, artifact, archiveName });
     }
 
+    // Список и сами файлы идут в одном алфавитно-числовом порядке по тем
+    // именам, которые реально окажутся внутри ZIP. Это упрощает сопоставление
+    // записей списка с книгами даже после очистки запрещённых символов или
+    // добавления суффикса к совпадающим именам.
+    archiveEntries.sort((a, b) => a.archiveName.localeCompare(
+        b.archiveName,
+        "ru",
+        { numeric: true, sensitivity: "base" }
+    ));
+
+    let listFileName = "";
+    if (batchOptions?.includeList) {
+        listFileName = uniqueArchiveName(BATCH_LIST_FILE_NAME, usedNames);
+        const listText = createWorksListText(
+            info,
+            format,
+            archiveEntries,
+            batchOptions?.listMode === "extended" ? "extended" : "short"
+        );
+        // BOM нужен для корректного открытия кириллицы даже старым Блокнотом Windows.
+        zip.file(listFileName, listText);
+    }
+
+    for (const entry of archiveEntries) {
+        if (progress.isCancelled()) throw new Error("cancelled");
+        zip.file(entry.archiveName, entry.artifact.blob);
+    }
+
+    const expectedZipEntries = workUrls.length + (batchOptions?.includeList ? 1 : 0);
     const zipEntries = Object.values(zip.files).filter(entry => !entry.dir);
-    if (zipEntries.length !== workUrls.length) {
-        throw new Error(`Контроль ZIP не пройден: ожидалось ${workUrls.length} файлов, добавлено ${zipEntries.length}.`);
+    if (zipEntries.length !== expectedZipEntries) {
+        throw new Error(`Контроль ZIP не пройден: ожидалось ${expectedZipEntries} файлов, добавлено ${zipEntries.length}.`);
     }
 
     // EPUB и PDF уже сжаты внутри, поэтому повторный DEFLATE почти не уменьшает
@@ -930,7 +1233,7 @@ async function createArchive(info, format, workUrls, artifacts, progress) {
 
     console.info(
         `[Ficbook Exporter] Пакет: ZIP готов — ${archiveName}, ${zipBlob.size} байт, ` +
-        `${workUrls.length} файлов`
+        `${workUrls.length} книг${batchOptions?.includeList ? ` + ${listFileName}` : ""}`
     );
 }
 
@@ -939,7 +1242,8 @@ async function buildArtifact(exporter, format, url, progress, workIndex, totalWo
 
     for (;;) {
         try {
-            return await exporter(
+            let batchBookInfo = null;
+            const artifact = await exporter(
                 (chapter, chaptersTotal) => {
                     if (progress.isCancelled()) throw new Error("cancelled");
                     progress.setChapter(chapter, chaptersTotal);
@@ -952,6 +1256,7 @@ async function buildArtifact(exporter, format, url, progress, workIndex, totalWo
                     allowIncompleteMetadata,
                     onBookInfo: book => {
                         if (progress.isCancelled()) throw new Error("cancelled");
+                        batchBookInfo = book || null;
                         progress.setBookInfo(book);
                     },
                     onNetworkState: state => {
@@ -964,6 +1269,10 @@ async function buildArtifact(exporter, format, url, progress, workIndex, totalWo
                     }
                 }
             );
+
+            return artifact && typeof artifact === "object"
+                ? { ...artifact, batchBookInfo }
+                : artifact;
         } catch (error) {
             if (error?.name !== "MetadataWarningError" || allowIncompleteMetadata) throw error;
 
@@ -1027,15 +1336,28 @@ async function runBatch(exporters, info, format) {
     );
 
     if (info.expectedCount > 0 && workUrls.length !== info.expectedCount) {
-        await showFatalResult(
-            "Количество не совпало",
-            `Ficbook показывает ${info.expectedCount} работ, а экспортёр нашёл ${workUrls.length}. ` +
-            "Пакет не запущен, чтобы случайно не создать неполный архив."
-        );
-        return;
+        // Счётчик «Работы» в профиле автора не всегда совпадает с публичным
+        // списком: например, он может учитывать скрытую/недоступную работу или
+        // обновляться с задержкой. Для автора используем его как справочный
+        // ориентир, но не блокируем экспорт уже полностью обойдённого списка.
+        if (info.type === "author") {
+            console.warn(
+                `[Ficbook Exporter] Счётчик профиля: ${info.expectedCount}, ` +
+                `доступно в списке: ${workUrls.length}`
+            );
+            if (!await confirmAuthorCountMismatch(info, workUrls.length)) return;
+        } else {
+            await showFatalResult(
+                "Количество не совпало",
+                `Ficbook показывает ${info.expectedCount} работ, а экспортёр нашёл ${workUrls.length}. ` +
+                "Пакет не запущен, чтобы случайно не создать неполный архив."
+            );
+            return;
+        }
     }
 
-    if (!await confirmBatchStart(info, format, workUrls.length)) return;
+    const batchOptions = await confirmBatchStart(info, format, workUrls.length);
+    if (!batchOptions) return;
 
     const progress = createProgressDialog(info, format, workUrls.length);
     const removeCloseProtection = protectFromAccidentalClose();
@@ -1106,7 +1428,7 @@ async function runBatch(exporters, info, format) {
             return;
         }
 
-        await createArchive(info, format, workUrls, artifacts, progress);
+        await createArchive(info, format, workUrls, artifacts, progress, batchOptions);
         progress.close();
     } catch (error) {
         progress.close();
@@ -1121,8 +1443,14 @@ async function runBatch(exporters, info, format) {
 
 function placementForPage() {
     if (supportsAuthorBatchButtons()) {
-        const nav = document.querySelector(".sidebar-sticky .sidebar-nav");
-        if (!nav) return null;
+        // Ficbook периодически меняет обёртку боковой навигации профиля.
+        // Раньше nav находился внутри .sidebar-sticky, теперь на части страниц
+        // эта обёртка отсутствует. Ищем сам .sidebar-nav в пределах профиля,
+        // сохраняя старый селектор как первый вариант для совместимости.
+        const nav = document.querySelector(
+            ".sidebar-sticky .sidebar-nav, .page-with-sidebar .sidebar-nav, .sidebar-nav"
+        );
+        if (!nav?.parentElement) return null;
         return { parent: nav.parentElement, after: nav, mode: "sidebar" };
     }
 
