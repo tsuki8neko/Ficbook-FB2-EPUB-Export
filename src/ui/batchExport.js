@@ -8,6 +8,11 @@ import { fetchTextWithRetries } from "../utils/network.js";
 const BATCH_STYLE_ID = "ficbook-batch-export-style";
 const BATCH_ROOT_ID = "ficbook-batch-export";
 const MAX_LIST_PAGES = 500;
+const LIST_SCAN_SMALL_DELAY_MIN_MS = 450;
+const LIST_SCAN_SMALL_DELAY_MAX_MS = 900;
+const LIST_SCAN_LARGE_DELAY_MIN_MS = 1600;
+const LIST_SCAN_LARGE_DELAY_MAX_MS = 2800;
+const LIST_PAGE_RECOVERY_ATTEMPTS = 4;
 const BETWEEN_WORKS_MIN_MS = 1500;
 const BETWEEN_WORKS_MAX_MS = 3000;
 const WHOLE_WORK_RETRY_MIN_MS = 4500;
@@ -358,6 +363,107 @@ function typeLabel(info) {
     return "Пакет";
 }
 
+function isRetryableListScanError(error) {
+    const status = Number(error?.status || 0);
+    return (
+        error?.retryable === true ||
+        !status ||
+        status === 403 ||
+        status === 408 ||
+        status === 425 ||
+        status === 429 ||
+        status >= 500
+    );
+}
+
+function listRecoveryDelayMs(error, recoveryAttempt) {
+    const status = Number(error?.status || 0);
+    const jitter = Math.random() * 4000;
+
+    // 429/403 обычно означают временное ограничение/защиту от слишком частых
+    // запросов. Короткие повторы только усугубляют ситуацию, поэтому даём
+    // Ficbook заметную паузу и увеличиваем её при повторных срабатываниях.
+    if (status === 429 || status === 403) {
+        return Math.min(90000, 20000 * recoveryAttempt + jitter);
+    }
+
+    // Для таймаутов и 5xx пауза короче, но тоже растущая.
+    return Math.min(45000, 7000 * recoveryAttempt + jitter);
+}
+
+function listScanDelayMs(info, visitedCount, foundCount) {
+    const largeList =
+        Number(info?.expectedCount || 0) >= 200 ||
+        foundCount >= 150 ||
+        visitedCount >= 8;
+
+    const min = largeList ? LIST_SCAN_LARGE_DELAY_MIN_MS : LIST_SCAN_SMALL_DELAY_MIN_MS;
+    const max = largeList ? LIST_SCAN_LARGE_DELAY_MAX_MS : LIST_SCAN_SMALL_DELAY_MAX_MS;
+    return min + Math.random() * (max - min);
+}
+
+async function fetchListPageWithRecovery(
+    pageUrl,
+    pageNumber,
+    foundCount,
+    requireWorks,
+    onStatus,
+    isCancelled
+) {
+    let recoveryAttempt = 0;
+
+    for (;;) {
+        if (isCancelled()) throw new Error("cancelled");
+
+        try {
+            const doc = await fetchDocument(pageUrl, {
+                isCancelled,
+                onNetworkState: state => {
+                    if (!state) return;
+                    onStatus(
+                        `Проверка списка: страница ${pageNumber}, найдено ${foundCount}. ${state}`
+                    );
+                }
+            });
+            const pageWorks = extractWorkUrls(doc);
+
+            // Иногда защитная/ошибочная страница Ficbook приходит с HTTP 200.
+            // Если до этого уже были работы (или счётчик обещает работы), пустой
+            // результат считаем временной ошибкой и повторяем именно эту страницу.
+            if (requireWorks && pageWorks.length === 0) {
+                const error = new Error("Ficbook вернул страницу списка без произведений.");
+                error.retryable = true;
+                throw error;
+            }
+
+            return { doc, pageWorks };
+        } catch (error) {
+            if (error?.message === "cancelled" || isCancelled()) throw new Error("cancelled");
+            if (!isRetryableListScanError(error) || recoveryAttempt >= LIST_PAGE_RECOVERY_ATTEMPTS) {
+                throw error;
+            }
+
+            recoveryAttempt += 1;
+            const waitMs = listRecoveryDelayMs(error, recoveryAttempt);
+            const seconds = Math.max(1, Math.round(waitMs / 1000));
+            const status = Number(error?.status || 0);
+            const reason = status === 429
+                ? "Ficbook временно ограничил частоту запросов"
+                : status === 403
+                    ? "Ficbook временно отклонил запрос"
+                    : error?.retryable === true && /без произведений/i.test(error?.message || "")
+                        ? "Ficbook вернул неполную страницу"
+                        : "сервер временно не ответил";
+
+            onStatus(
+                `Проверка списка: страница ${pageNumber}, найдено ${foundCount}. ` +
+                `${reason}; пауза ${seconds} с и повтор без потери прогресса…`
+            );
+            await cancellableDelay(waitMs, isCancelled);
+        }
+    }
+}
+
 async function collectAllWorkUrls(info, onStatus, isCancelled) {
     if (!info?.listUrl) throw new Error("Не удалось определить страницу со списком работ.");
 
@@ -373,15 +479,23 @@ async function collectAllWorkUrls(info, onStatus, isCancelled) {
 
         const pageUrl = queue.shift();
         if (!pageUrl || visited.has(pageUrl)) continue;
-        visited.add(pageUrl);
-        onStatus(`Проверка списка: страница ${visited.size}`);
 
-        const doc = await fetchDocument(pageUrl, {
-            isCancelled,
-            onNetworkState: state => {
-                if (state) onStatus(state);
-            }
-        });
+        const pageNumber = visited.size + 1;
+        onStatus(`Проверка списка: страница ${pageNumber}, найдено ${works.size}`);
+
+        // Важно: помечаем страницу посещённой только после успешной загрузки.
+        // Раньше при сетевой ошибке она уже попадала в visited, а весь проход
+        // завершался. Для больших сборников это особенно легко ловилось в середине.
+        const { doc, pageWorks } = await fetchListPageWithRecovery(
+            pageUrl,
+            pageNumber,
+            works.size,
+            works.size > 0 || Number(info.expectedCount || 0) > 0,
+            onStatus,
+            isCancelled
+        );
+
+        visited.add(pageUrl);
 
         // Если «Скачать сборник» запущено со страницы, где были активны фильтры,
         // исходное число возле заголовка нельзя использовать: оно может быть числом
@@ -392,7 +506,7 @@ async function collectAllWorkUrls(info, onStatus, isCancelled) {
             if (total > 0) info.expectedCount = total;
         }
 
-        extractWorkUrls(doc).forEach(url => works.add(url));
+        pageWorks.forEach(url => works.add(url));
         onStatus(`Проверка списка: страница ${visited.size}, найдено ${works.size}`);
 
         // Для профиля автора число в боковом счётчике бывает справочным и
@@ -402,6 +516,15 @@ async function collectAllWorkUrls(info, onStatus, isCancelled) {
 
         for (const nextUrl of paginationUrls(doc, info.listUrl, info)) {
             if (!visited.has(nextUrl) && !queue.includes(nextUrl)) queue.push(nextUrl);
+        }
+
+        // На коротких списках задержка почти незаметна. На больших автоматически
+        // замедляем обход, чтобы не посылать десятки страниц подряд и не ловить 429.
+        if (queue.length) {
+            await cancellableDelay(
+                listScanDelayMs(info, visited.size, works.size),
+                isCancelled
+            );
         }
     }
 
@@ -1314,17 +1437,31 @@ async function runBatch(exporters, info, format) {
     scan.dialog.append(scanStatus, scanActions);
 
     let workUrls;
+    let scanError = null;
     try {
         workUrls = await collectAllWorkUrls(
             info,
             status => { scanStatus.textContent = status; },
             () => scanCancelled
         );
+    } catch (error) {
+        if (error?.message !== "cancelled") scanError = error;
     } finally {
         scan.overlay.remove();
     }
 
     if (scanCancelled) return;
+    if (scanError) {
+        const status = Number(scanError?.status || 0);
+        const suffix = status ? ` (HTTP ${status})` : "";
+        await showFatalResult(
+            "Не удалось дочитать список произведений",
+            `Сканирование остановилось после повторных попыток${suffix}. ` +
+            "Уже найденные страницы не были скачаны в архив, поэтому неполный пакет не создавался. " +
+            "Попробуйте повторить позже; при временных ограничениях Ficbook экспортёр теперь делает длинные паузы автоматически."
+        );
+        return;
+    }
     if (!workUrls.length) {
         await showFatalResult("Работы не найдены", "Не удалось найти ни одного произведения для пакетного экспорта.");
         return;
